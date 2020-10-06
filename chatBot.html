@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title> </title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script>
+        //say cat or dog or both
+var dogOrcat = [
+    {"re": /(cat|kissa|cats|kissoista)/gi, "output": "\<img height\=\"500\" width\=\"500\" src=\"http://pak101.com/forum/HotEngine/2011/6/13/innocent_cat_zlxso.jpg\">"},
+    {"re": /(dog|koira|dogs|koirista)/gi, "output": "\<img  height\=\"500\" width\=\"500\" src=\"https://www.nationalgeographic.com/content/dam/animals/thumbs/rights-exempt/mammals/d/domestic-dog_thumb.jpg \">"},
+    {"re": /(both|molemmista|molemmat)/gi, "output": "\<img height\=\"500\" width\=\"500\" src=\"http://pak101.com/forum/HotEngine/2011/6/13/innocent_cat_zlxso.jpg\"> \<img  height\=\"500\" width\=\"500\" src=\"https://www.nationalgeographic.com/content/dam/animals/thumbs/rights-exempt/mammals/d/domestic-dog_thumb.jpg \">"},
+    {"re": /^(hi|hello|hey)/gi, "output": ["Hi! Nice to meet you", "Hello stranger!"]},    
+    {"re": /.*/gi, "output": ["Write cat or dog to see cute pic!", "Yo, wanna see cat or dog picture?"]}
+];
+
+    // return a random item form an array of items
+    function randomItem(items) {
+        return items[Math.floor(Math.random()*items.length)];
+    }
+
+            // preprocess the user input, so that extra words and characters
+            // are discarded and everything is converted to lowercase
+            function preprocess(input) {
+                return input.trim().replace(/\s\s+/gi, " ").
+                replace(/[!.?]+$/g, "").toLowerCase();
+            }
+    
+            // create a response based on the pattern matching
+            // patterns is a list of objects with the following syntax
+            // {"re": /regular exp/gi, "output": "Output string"}
+            // {"re": /regular exp/gi, "output": ["string1", "string2..."}
+            function process(input, patterns) {
+                for(let pattern of patterns) {
+                    if (input.match(pattern.re)) {
+                        if (typeof(pattern.output)=="string") {
+                            var s = pattern.output;
+                        } else {
+                            var s = randomItem(pattern.output);   
+                        }
+                        return s.replace(/\*/gi, input);
+                    }
+                }
+            }
+            function say() {
+                var input = document.getElementById("input").value;
+                var output = process(preprocess(input), dogOrcat);
+                document.getElementById("output").innerHTML = output;
+            }
+        </script>
+    </head>
+    <body>
+<form>
+    <input type="text" id="input" name="input" size="80" autofocus placeholder="Are you cat or dog person? Oletko kissa vai koira ihminen?">
+    <input type="button" value="say" onclick="say()"><br>
+    <output id="output"></output>
+</form>
+</body>
+</html>
