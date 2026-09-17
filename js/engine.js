@@ -774,7 +774,7 @@
         text: draft.text,
         html: draft.html || "",
         intent: top.id,
-        score: top.score || 0,
+        score: clamp(top.score || 0, 0, 1),
         lang,
         traces,
         suggestions: draft.suggestions,
