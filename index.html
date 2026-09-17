@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cortex — on-device JSON intelligence</title>
+    <meta name="description" content="Ten-phase conversational engine that runs entirely in HTML, CSS, and JS from a JSON brain. No cloud inference.">
+    <link rel="stylesheet" href="css/app.css">
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <h1>Cortex</h1>
+          <span class="tag">JSON brain · 10-phase local NLU</span>
+        </div>
+        <div class="badges">
+          <span class="badge live">offline inference</span>
+          <span class="badge">no model API</span>
+        </div>
+        <nav>
+          <a href="chatBot.html">Classic regex bot</a>
+          <a href="README.md">Roadmap</a>
+        </nav>
+      </header>
+
+      <div class="workspace">
+        <aside class="rail" aria-label="Pipeline phases">
+          <h2>Pipeline</h2>
+          <div id="phase-list"></div>
+        </aside>
+
+        <main class="stage">
+          <div id="transcript" class="transcript" aria-live="polite"></div>
+          <div class="composer">
+            <div id="chips" class="chips"></div>
+            <div class="row">
+              <input id="input" type="text" autofocus autocomplete="off" placeholder="Are you a cat or dog person? Oletko kissa- vai koiraihminen?">
+              <button class="primary" id="say" type="button">Say</button>
+            </div>
+          </div>
+        </main>
+
+        <aside class="inspector">
+          <div class="tabs">
+            <button type="button" class="active" data-tab="trace">Trace</button>
+            <button type="button" data-tab="memory">Memory</button>
+            <button type="button" data-tab="brain">Brain</button>
+            <button type="button" data-tab="roadmap">Phases</button>
+          </div>
+          <div class="panel-body" data-pane="trace">
+            <p class="hint">Each reply lights the ten stages. Nothing is posted to a remote AI host.</p>
+            <div id="trace-list"></div>
+          </div>
+          <div class="panel-body hidden mem" data-pane="memory">
+            <p class="hint">Persisted with localStorage in this browser only.</p>
+            <div class="actions">
+              <button id="reset-mem" type="button">Clear memory</button>
+            </div>
+            <div id="mem-view"></div>
+          </div>
+          <div class="panel-body hidden" data-pane="brain">
+            <p class="hint">The entire skill set is this JSON document. Edit and apply — the engine recompiles in-page.</p>
+            <div class="actions">
+              <button id="apply-brain" type="button">Apply JSON</button>
+              <button id="download-brain" type="button">Export</button>
+              <label class="file-btn">Import <input id="import-brain" type="file" accept="application/json" hidden></label>
+            </div>
+            <p id="brain-error" class="err"></p>
+            <textarea id="brain-json" class="brain" spellcheck="false" aria-label="Brain JSON"></textarea>
+          </div>
+          <div class="panel-body hidden" data-pane="roadmap">
+            <p class="hint">Implemented end-to-end in HTML, CSS, and JavaScript. The cloud is not in the request path.</p>
+            <div id="roadmap-list"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <script src="js/engine.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>

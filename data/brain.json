@@ -1,0 +1,481 @@
+{
+  "meta": {
+    "name": "Cortex",
+    "version": "10.0",
+    "tagline": {
+      "en": "On-device conversational intelligence. No cloud inference.",
+      "fi": "Laitteella toimiva keskusteluäly. Ei pilvipäättelyä."
+    },
+    "persona": {
+      "name": "Cortex",
+      "role": "local JSON-driven conversational engine",
+      "tone": "warm, precise, slightly wry",
+      "languages": ["en", "fi"]
+    }
+  },
+  "roadmap": [
+    {
+      "phase": 1,
+      "id": "perception",
+      "title": "Perception",
+      "summary": "Normalize text, detect language, tokenize, n-grams, light stemming and sentiment."
+    },
+    {
+      "phase": 2,
+      "id": "intent",
+      "title": "Intent",
+      "summary": "Score JSON intents with regex patterns, weighted keywords, and example overlap."
+    },
+    {
+      "phase": 3,
+      "id": "entities",
+      "title": "Entities",
+      "summary": "Fill slots from gazetteers and extractors: animals, names, numbers, operators."
+    },
+    {
+      "phase": 4,
+      "id": "semantics",
+      "title": "Semantics",
+      "summary": "Local character n-gram vectors and cosine similarity. No remote embeddings."
+    },
+    {
+      "phase": 5,
+      "id": "dialogue",
+      "title": "Dialogue",
+      "summary": "Track topic, pronouns, missing slots, and multi-turn clarification."
+    },
+    {
+      "phase": 6,
+      "id": "knowledge",
+      "title": "Knowledge",
+      "summary": "Retrieve facts and relations from the JSON knowledge graph."
+    },
+    {
+      "phase": 7,
+      "id": "reasoning",
+      "title": "Reasoning",
+      "summary": "Apply rules, math, yes/no graph checks, and slot templates."
+    },
+    {
+      "phase": 8,
+      "id": "memory",
+      "title": "Memory",
+      "summary": "Session plus localStorage: name, favorites, taught replies, custom facts."
+    },
+    {
+      "phase": 9,
+      "id": "persona",
+      "title": "Persona",
+      "summary": "Match language and tone, vary phrasing, apply safety filters."
+    },
+    {
+      "phase": 10,
+      "id": "planner",
+      "title": "Planner",
+      "summary": "Compose the reply, attach media, suggestions, and an explainable trace."
+    }
+  ],
+  "lexicon": {
+    "stopwords": {
+      "en": ["a", "an", "the", "is", "are", "am", "to", "of", "and", "or", "in", "on", "for", "me", "my", "you", "your", "please", "just", "can", "could", "would", "do", "does", "did", "it", "that", "this", "with", "be"],
+      "fi": ["ja", "on", "ei", "ole", "se", "tämä", "tuo", "minun", "sun", "olethan", "kuin", "vai"]
+    },
+    "synonyms": {
+      "kitty": "cat",
+      "kitten": "cat",
+      "kittens": "cat",
+      "cats": "cat",
+      "kissa": "cat",
+      "kissat": "cat",
+      "kissoista": "cat",
+      "kissan": "cat",
+      "puppy": "dog",
+      "puppies": "dog",
+      "doggo": "dog",
+      "dogs": "dog",
+      "koira": "dog",
+      "koirat": "dog",
+      "koirista": "dog",
+      "koiran": "dog",
+      "molemmat": "both",
+      "molemmista": "both",
+      "pic": "picture",
+      "photo": "picture",
+      "image": "picture",
+      "kuva": "picture",
+      "kuvia": "picture",
+      "hi": "hello",
+      "hey": "hello",
+      "yo": "hello",
+      "moi": "hello",
+      "hei": "hello",
+      "terve": "hello",
+      "bye": "goodbye",
+      "ciao": "goodbye",
+      "moi moi": "goodbye",
+      "thanks": "thank",
+      "thx": "thank",
+      "kiitos": "thank",
+      "howdy": "hello"
+    },
+    "fiHints": ["kissa", "koira", "molemmat", "molemmista", "kissoista", "koirista", "hei", "moi", "kiitos", "mikä", "missä", "olenko", "oletko", "nimeni", "kuvani", "näytä", "kerro", "mitä", "kuka", "sinä", "minä", "haluan", "kuva", "ihminen"],
+    "sentiment": {
+      "positive": ["love", "like", "great", "awesome", "cute", "beautiful", "thanks", "good", "happy", "ihana", "kiva", "rakastan"],
+      "negative": ["hate", "sad", "bad", "ugly", "stupid", "annoyed", "vihaan", "huono"]
+    }
+  },
+  "entities": {
+    "animal": {
+      "type": "gazetteer",
+      "values": {
+        "cat": ["cat", "cats", "kitty", "kitten", "kittens", "kissa", "kissat", "kissoista", "kissan"],
+        "dog": ["dog", "dogs", "puppy", "puppies", "doggo", "koira", "koirat", "koirista", "koiran"],
+        "both": ["both", "molemmat", "molemmista"]
+      }
+    },
+    "lang": {
+      "type": "gazetteer",
+      "values": {
+        "en": ["english", "en", "englanti", "englanniksi"],
+        "fi": ["finnish", "fi", "suomi", "suomeksi"]
+      }
+    }
+  },
+  "intents": [
+    {
+      "id": "greet",
+      "priority": 8,
+      "patterns": ["^(hi|hello|hey|yo|howdy|moi|hei|terve)\\b"],
+      "keywords": { "hello": 0.7, "hi": 0.6, "hey": 0.6, "moi": 0.7, "hei": 0.7 },
+      "examples": ["hello", "hi there", "hey cortex", "moi", "hei"],
+      "handler": "template"
+    },
+    {
+      "id": "farewell",
+      "priority": 8,
+      "patterns": ["\\b(bye|goodbye|see you|later|ciao|moi moi)\\b"],
+      "keywords": { "goodbye": 0.8, "bye": 0.7 },
+      "examples": ["bye", "goodbye", "see you later"],
+      "handler": "template"
+    },
+    {
+      "id": "thanks",
+      "priority": 7,
+      "patterns": ["\\b(thanks|thank you|thx|kiitos)\\b"],
+      "keywords": { "thank": 0.8, "thanks": 0.8, "kiitos": 0.8 },
+      "examples": ["thanks", "thank you", "kiitos"],
+      "handler": "template"
+    },
+    {
+      "id": "identity",
+      "priority": 9,
+      "patterns": ["\\b(who are you|what are you|your name|kuka olet|mikä sinun nimesi)\\b"],
+      "keywords": { "who": 0.3, "you": 0.1, "name": 0.4, "cortex": 0.5, "kuka": 0.5 },
+      "examples": ["who are you", "what is your name", "kuka olet", "are you an ai"],
+      "handler": "template"
+    },
+    {
+      "id": "how_works",
+      "priority": 10,
+      "patterns": ["\\b(how (do you|does this) work|how are you made|explain (yourself|the pipeline|the phases)|10 phases|no cloud|on.device|local (ai|brain))\\b"],
+      "keywords": { "how": 0.2, "work": 0.4, "pipeline": 0.6, "phase": 0.5, "cloud": 0.3, "json": 0.4 },
+      "examples": ["how do you work", "explain the pipeline", "are you calling a cloud api", "how does local ai work"],
+      "handler": "explain"
+    },
+    {
+      "id": "capabilities",
+      "priority": 8,
+      "patterns": ["\\b(what can you do|help|commands|capabilities|mitä osaat)\\b"],
+      "keywords": { "help": 0.6, "can": 0.2, "do": 0.2, "commands": 0.5 },
+      "examples": ["what can you do", "help", "mitä osaat"],
+      "handler": "template"
+    },
+    {
+      "id": "show_media",
+      "priority": 12,
+      "patterns": ["\\b(show|picture|photo|image|pic|see|näytä|kuva|kuvia)\\b", "^(cat|dog|both|kissa|koira|molemmat)$"],
+      "keywords": { "picture": 0.5, "show": 0.35, "pic": 0.5, "kuva": 0.5, "näytä": 0.4, "cat": 0.45, "dog": 0.45, "both": 0.5, "kissa": 0.5, "koira": 0.5 },
+      "examples": ["cat", "dog", "both", "show me a cat", "dog picture", "kissa", "näytä koira", "molemmat"],
+      "slots": ["animal"],
+      "handler": "media"
+    },
+    {
+      "id": "animal_fact",
+      "priority": 11,
+      "patterns": ["\\b(tell me about|what is a|facts? about|kerro|tietoa)\\b"],
+      "keywords": { "about": 0.4, "fact": 0.5, "tell": 0.3, "kerro": 0.5, "mammal": 0.4 },
+      "examples": ["tell me about cats", "what is a dog", "facts about cats", "kerro kissoista"],
+      "slots": ["animal"],
+      "handler": "graph_qa"
+    },
+    {
+      "id": "compare",
+      "priority": 10,
+      "patterns": ["\\b(vs|versus|compared|difference|vai)\\b"],
+      "keywords": { "vs": 0.6, "difference": 0.5, "compare": 0.5, "or": 0.15, "vai": 0.4 },
+      "examples": ["cat vs dog", "difference between cats and dogs", "kissa vai koira"],
+      "handler": "compare"
+    },
+    {
+      "id": "more_info",
+      "priority": 6,
+      "patterns": ["\\b(more|another|again|else|tell me more|lisää|uudestaan)\\b"],
+      "keywords": { "more": 0.6, "another": 0.5, "again": 0.4, "lisää": 0.6 },
+      "examples": ["tell me more", "another one", "lisää"],
+      "handler": "more"
+    },
+    {
+      "id": "remember_name",
+      "priority": 11,
+      "patterns": ["\\b((my name is|i am|i'm|nimeni on|olen) )\\b"],
+      "keywords": { "name": 0.6, "nimeni": 0.7 },
+      "examples": ["my name is Aino", "I am Alex", "nimeni on Aino"],
+      "handler": "remember_name"
+    },
+    {
+      "id": "remember_pref",
+      "priority": 10,
+      "patterns": ["\\b(i (like|love|prefer)|favorite|lempin|tykkään|rakastan)\\b"],
+      "keywords": { "like": 0.35, "love": 0.4, "favorite": 0.6, "prefer": 0.5, "tykkään": 0.5 },
+      "examples": ["I like dogs", "my favorite animal is the cat", "tykkään kissoista"],
+      "handler": "remember_pref"
+    },
+    {
+      "id": "recall",
+      "priority": 9,
+      "patterns": ["\\b(what is my (name|favorite)|do you remember|what's my|mikä (nimeni|lempin))\\b"],
+      "keywords": { "remember": 0.5, "my": 0.15, "name": 0.35, "favorite": 0.4 },
+      "examples": ["what is my name", "do you remember me", "what's my favorite animal"],
+      "handler": "recall"
+    },
+    {
+      "id": "teach",
+      "priority": 12,
+      "patterns": ["\\b(when i say|if i say|teach you|remember that|opeta)\\b"],
+      "keywords": { "when": 0.2, "say": 0.25, "teach": 0.6, "remember": 0.3, "opeta": 0.6 },
+      "examples": ["when I say ping reply pong", "remember that the sky is teal here", "teach you"],
+      "handler": "teach"
+    },
+    {
+      "id": "math",
+      "priority": 13,
+      "patterns": ["(-?\\d+(?:[.,]\\d+)?)\\s*([+\\-*/x×÷])\\s*(-?\\d+(?:[.,]\\d+)?)", "\\b(calculate|compute|what is|what's|laske)\\b"],
+      "keywords": { "calculate": 0.6, "plus": 0.4, "minus": 0.4, "times": 0.4, "laske": 0.6 },
+      "examples": ["what is 12 * 7", "calculate 2+2", "laske 9/3"],
+      "handler": "math"
+    },
+    {
+      "id": "datetime",
+      "priority": 9,
+      "patterns": ["\\b(what time|what date|today|current time|päivämäärä|mitä kello)\\b"],
+      "keywords": { "time": 0.5, "date": 0.5, "today": 0.4, "kello": 0.6 },
+      "examples": ["what time is it", "what's the date", "mitä kello on"],
+      "handler": "datetime"
+    },
+    {
+      "id": "joke",
+      "priority": 7,
+      "patterns": ["\\b(joke|funny|vitsi)\\b"],
+      "keywords": { "joke": 0.8, "vitsi": 0.8, "funny": 0.4 },
+      "examples": ["tell me a joke", "kerro vitsi"],
+      "handler": "joke"
+    },
+    {
+      "id": "reset",
+      "priority": 10,
+      "patterns": ["\\b(forget me|reset memory|clear memory|unohda)\\b"],
+      "keywords": { "forget": 0.7, "reset": 0.6, "unohda": 0.7 },
+      "examples": ["forget me", "reset memory", "unohda minut"],
+      "handler": "reset"
+    },
+    {
+      "id": "inspect_brain",
+      "priority": 8,
+      "patterns": ["\\b(show (the )?brain|open json|knowledge graph|inspect)\\b"],
+      "keywords": { "brain": 0.5, "json": 0.5, "inspect": 0.4 },
+      "examples": ["show the brain json", "inspect knowledge"],
+      "handler": "inspect"
+    },
+    {
+      "id": "switch_lang",
+      "priority": 8,
+      "patterns": ["\\b(speak (english|finnish)|suomeksi|englanniksi|in finnish|in english)\\b"],
+      "keywords": { "finnish": 0.6, "english": 0.5, "suomeksi": 0.8, "englanniksi": 0.8 },
+      "examples": ["speak finnish", "suomeksi", "in english"],
+      "handler": "switch_lang"
+    },
+    {
+      "id": "yes_no",
+      "priority": 8,
+      "patterns": ["\\b(is a |are |onko )\\b"],
+      "keywords": { "is": 0.2, "are": 0.2, "onko": 0.5, "mammal": 0.4 },
+      "examples": ["is a cat a mammal", "are dogs carnivores", "onko kissa nisäkäs"],
+      "handler": "yes_no"
+    },
+    {
+      "id": "fallback",
+      "priority": 0,
+      "patterns": [".*"],
+      "keywords": {},
+      "examples": [],
+      "handler": "fallback"
+    }
+  ],
+  "dialogue": {
+    "flows": [
+      {
+        "id": "need_animal",
+        "intent": "show_media",
+        "required": ["animal"],
+        "ask": {
+          "en": "Cat, dog, or both? I can draw either locally — no image CDN required.",
+          "fi": "Kissa, koira vai molemmat? Piirrän ne täällä, ilman kuvaverkkoa."
+        }
+      }
+    ]
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "cat",
+        "type": "animal",
+        "label": { "en": "cat", "fi": "kissa" },
+        "summary": {
+          "en": "A small domesticated carnivore (Felis catus), famous for night vision, righting reflex, and selective affection.",
+          "fi": "Pieni kesy lihansyöjä (Felis catus), tunnettu yönaisesta, kääntymisheijasteesta ja valikoivasta hellyydestä."
+        },
+        "facts": {
+          "en": [
+            "Cats purr around 25–150 Hz, a range sometimes studied for bone-healing effects.",
+            "A group of cats can be called a clowder.",
+            "Most cats have 18 toes: five on each front paw and four on each back paw."
+          ],
+          "fi": [
+            "Kissan kehräys on noin 25–150 Hz, taajuus jota on tutkittu myös luun paranemisessa.",
+            "Kissalaumaa voi kutsua englanniksi clowderiksi.",
+            "Useimmilla kissoilla on 18 varvasta."
+          ]
+        }
+      },
+      {
+        "id": "dog",
+        "type": "animal",
+        "label": { "en": "dog", "fi": "koira" },
+        "summary": {
+          "en": "A domesticated pack hunter (Canis familiaris) with extraordinary scent, social intelligence, and partnership with humans.",
+          "fi": "Kesy laumametsästäjä (Canis familiaris), jolla on tarkka hajuaisti, sosiaalinen äly ja kumppanuus ihmisen kanssa."
+        },
+        "facts": {
+          "en": [
+            "A dog's nose print is unique, similar to a human fingerprint.",
+            "Dogs have about 1,700 taste buds; humans have about 9,000.",
+            "Greyhounds can reach about 45 mph in a short sprint."
+          ],
+          "fi": [
+            "Koiran kirsun kuvio on yksilöllinen, kuin sormenjälki.",
+            "Koiralla on noin 1700 makunystyrää, ihmisellä noin 9000.",
+            "Vinttikoira voi juosta lyhyesti noin 72 km/h."
+          ]
+        }
+      },
+      {
+        "id": "mammal",
+        "type": "class",
+        "label": { "en": "mammal", "fi": "nisäkäs" },
+        "summary": {
+          "en": "Warm-blooded vertebrates that nurse their young with milk.",
+          "fi": "Tasalämpöisiä selkärankaisia, jotka imettävät poikasiaan."
+        }
+      },
+      {
+        "id": "carnivore",
+        "type": "diet",
+        "label": { "en": "carnivore", "fi": "lihansyöjä" },
+        "summary": {
+          "en": "An animal adapted to eating meat.",
+          "fi": "Lihaan sopeutunut eläin."
+        }
+      },
+      {
+        "id": "cortex",
+        "type": "system",
+        "label": { "en": "Cortex", "fi": "Cortex" },
+        "summary": {
+          "en": "This page: a ten-phase NLU pipeline that reads a JSON brain in your browser. Matching, memory, and replies never leave the device.",
+          "fi": "Tämä sivu: kymmenvaiheinen NLU-putki, joka lukee JSON-aivot selaimessa. Vastaukset eivät lähde laitteelta."
+        }
+      }
+    ],
+    "edges": [
+      { "from": "cat", "rel": "is_a", "to": "mammal" },
+      { "from": "dog", "rel": "is_a", "to": "mammal" },
+      { "from": "cat", "rel": "is_a", "to": "carnivore" },
+      { "from": "dog", "rel": "is_a", "to": "carnivore" },
+      { "from": "cat", "rel": "contrasts", "to": "dog" }
+    ]
+  },
+  "compareNotes": {
+    "en": "Cats are typically more territorial and crepuscular; dogs are more overtly social and trainable as partners. Both are carnivorous mammals. I can draw either without leaving this tab.",
+    "fi": "Kissat ovat usein reviiritietoisempia ja hämäräaktiivisia; koirat sosiaalisempia ja koulutettavampia kumppaneiksi. Molemmat ovat lihaa syöviä nisäkkäitä."
+  },
+  "jokes": {
+    "en": [
+      "I told the cloud I was going independent. It asked for an API key. I showed it a JSON file.",
+      "Why did the regex go to therapy? Too many unresolved capture groups.",
+      "I don't hallucinate tokens from a datacenter. I just pick a fact you can open in the Brain tab."
+    ],
+    "fi": [
+      "Sanoin pilvelle olevani itsenäinen. Se pyysi API-avainta. Näytin sille JSON-tiedoston.",
+      "Miksi säännöllinen lauseke meni terapiaan? Liikaa sulkemattomia ryhmiä."
+    ]
+  },
+  "responses": {
+    "greet": {
+      "en": [
+        "Hello{{nameSuffix}}. I'm Cortex — a JSON brain running in this page, not a remote model.",
+        "Hi{{nameSuffix}}. I'm Cortex. Ask for a cat, a fact, some math, or how the ten phases fire."
+      ],
+      "fi": [
+        "Hei{{nameSuffix}}. Olen Cortex, JSON-aivot tässä sivussa, en etämalli.",
+        "Moi{{nameSuffix}}. Pyydä kissaa, faktaa, laskutoimitusta tai selitystä kymmenestä vaiheesta."
+      ]
+    },
+    "farewell": {
+      "en": ["See you. Your memory stays in this browser unless you reset it.", "Bye — still offline, still here when you come back."],
+      "fi": ["Nähdään. Muisti jää tähän selaimeen kunnes nollaat sen.", "Moi moi — yhä ilman pilveä."]
+    },
+    "thanks": {
+      "en": ["You're welcome. That reply was assembled from local JSON, not a server.", "Anytime. Peek at the phase rail to see which stages fired."],
+      "fi": ["Ole hyvä. Vastaus koottiin paikallisesta JSONista.", "Ei kestä. Katso vasemmalta, mitkä vaiheet syttyivät."]
+    },
+    "identity": {
+      "en": ["I'm Cortex, an on-device conversational engine. Intents, entities, facts, and personality live in brain.json. JavaScript runs a 10-phase pipeline. There is no model API call."],
+      "fi": ["Olen Cortex, laitteella toimiva keskustelumoottori. Aikeet, entiteetit, faktat ja persoona ovat tiedostossa brain.json. JavaScript ajaa 10 vaihetta. Mallirajapintaa ei ole."]
+    },
+    "capabilities": {
+      "en": ["I can greet you in English or Finnish, draw cats and dogs, pull animal facts from a knowledge graph, do arithmetic, remember your name and favorites, learn a custom when-I-say rule, tell the local time, and show a live trace of all ten phases. Try: cat · tell me about dogs · my name is Aino · when I say ping reply pong · what is 12*7"],
+      "fi": ["Osaan tervehtiä suomeksi tai englanniksi, piirtää kissoja ja koiria, hakea faktoja tietoverkosta, laskea, muistaa nimesi, oppia kun-sanon-säännön, kertoa kellon ja näyttää kymmenen vaiheen jäljen. Kokeile: kissa · kerro koirista · nimeni on Aino · laske 12*7"]
+    },
+    "fallback": {
+      "en": [
+        "I didn't lock an intent with enough confidence. Write cat or dog for a picture, ask how I work, or teach me with: when I say … reply …",
+        "No cloud to guess with — only this JSON brain. Try a cat picture, a fact, math, or open the Brain tab."
+      ],
+      "fi": [
+        "En saanut tarpeeksi varmaa aietta. Kirjoita kissa tai koira, kysy miten toimin, tai opeta: kun sanon … vastaa …",
+        "Ei pilveä arvaamaan — vain nämä JSON-aivot. Kokeile kissakuvaa, faktaa tai laskua."
+      ]
+    }
+  },
+  "safety": {
+    "block_patterns": ["\\b(api[_-]?key|sk-[a-z0-9]{10,})\\b"],
+    "blocked": {
+      "en": "I stay on-device and won't treat secrets as chat content. Ask me about the pipeline instead.",
+      "fi": "Pysyn laitteella enkä käsittele salaisuuksia chatinä. Kysy mieluummin putkesta."
+    }
+  },
+  "suggestions": {
+    "en": ["cat", "dog", "both", "How do you work?", "Tell me about cats", "What is 12 * 7", "My name is Aino"],
+    "fi": ["kissa", "koira", "molemmat", "Miten toimit?", "Kerro kissoista", "Laske 12 * 7", "Nimeni on Aino"]
+  }
+}
