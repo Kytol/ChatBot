@@ -116,9 +116,18 @@
       "thanks": "thank",
       "thx": "thank",
       "kiitos": "thank",
-      "howdy": "hello"
+      "howdy": "hello",
+      "horse": "horse",
+      "horses": "horse",
+      "fox": "fox",
+      "foxes": "fox",
+      "bird": "bird",
+      "birds": "bird",
+      "fish": "fish",
+      "rabbit": "rabbit",
+      "bunny": "rabbit"
     },
-    "fiHints": ["kissa", "koira", "molemmat", "molemmista", "kissoista", "koirista", "hei", "moi", "kiitos", "mikä", "missä", "olenko", "oletko", "nimeni", "kuvani", "näytä", "kerro", "mitä", "kuka", "sinä", "minä", "haluan", "kuva", "ihminen"],
+    "fiHints": ["kissa", "koira", "molemmat", "molemmista", "kissoista", "koirista", "hei", "moi", "kiitos", "mikä", "missä", "olenko", "oletko", "nimeni", "kuvani", "näytä", "kerro", "mitä", "kuka", "sinä", "minä", "haluan", "kuva", "ihminen", "kuuluu", "huomenta", "päivää", "sää", "kolikko", "noppa", "toista", "käännä"],
     "sentiment": {
       "positive": ["love", "like", "great", "awesome", "cute", "beautiful", "thanks", "good", "happy", "ihana", "kiva", "rakastan"],
       "negative": ["hate", "sad", "bad", "ugly", "stupid", "annoyed", "vihaan", "huono"]
@@ -130,7 +139,12 @@
       "values": {
         "cat": ["cat", "cats", "kitty", "kitten", "kittens", "kissa", "kissat", "kissoista", "kissan"],
         "dog": ["dog", "dogs", "puppy", "puppies", "doggo", "koira", "koirat", "koirista", "koiran"],
-        "both": ["both", "molemmat", "molemmista"]
+        "both": ["both", "molemmat", "molemmista"],
+        "horse": ["horse", "horses", "pony", "hevoinen", "hevonen"],
+        "fox": ["fox", "foxes", "kettu"],
+        "bird": ["bird", "birds", "lintu", "linnut"],
+        "fish": ["fish", "kala"],
+        "rabbit": ["rabbit", "bunny", "rabbits", "jänis"]
       }
     },
     "lang": {
@@ -153,7 +167,7 @@
     {
       "id": "farewell",
       "priority": 8,
-      "patterns": ["\\b(bye|goodbye|see you|later|ciao|moi moi)\\b"],
+      "patterns": ["\\b(bye|goodbye|see you|see ya|cya|later|ciao|moi moi|good night|gn)\\b"],
       "keywords": { "goodbye": 0.8, "bye": 0.7 },
       "examples": ["bye", "goodbye", "see you later"],
       "handler": "template"
@@ -227,7 +241,7 @@
     {
       "id": "remember_name",
       "priority": 11,
-      "patterns": ["\\b((my name is|i am|i'm|nimeni on|olen) )\\b"],
+      "patterns": ["\\b((my name is|my name's|i am called|i'm called|nimeni on|call me|kutsu minua) )\\b"],
       "keywords": { "name": 0.6, "nimeni": 0.7 },
       "examples": ["my name is Aino", "I am Alex", "nimeni on Aino"],
       "handler": "remember_name"
@@ -267,8 +281,8 @@
     {
       "id": "datetime",
       "priority": 9,
-      "patterns": ["\\b(what time|what date|today|current time|päivämäärä|mitä kello)\\b"],
-      "keywords": { "time": 0.5, "date": 0.5, "today": 0.4, "kello": 0.6 },
+      "patterns": ["\\b(what time|what date|what day|what year|today|current time|päivämäärä|mitä kello)\\b"],
+      "keywords": { "time": 0.5, "date": 0.5, "today": 0.4, "kello": 0.6, "year": 0.4, "day": 0.35 },
       "examples": ["what time is it", "what's the date", "mitä kello on"],
       "handler": "datetime"
     },
@@ -309,8 +323,120 @@
       "priority": 8,
       "patterns": ["\\b(is a |are |onko )\\b"],
       "keywords": { "is": 0.2, "are": 0.2, "onko": 0.5, "mammal": 0.4 },
-      "examples": ["is a cat a mammal", "are dogs carnivores", "onko kissa nisäkäs"],
+      "examples": ["is a cat a mammal", "are dogs carnivores", "onko kissa nisäkäs", "are cats mammals"],
       "handler": "yes_no"
+    },
+    {
+      "id": "empty",
+      "priority": 14,
+      "patterns": ["^$"],
+      "keywords": {},
+      "examples": [],
+      "handler": "empty"
+    },
+    {
+      "id": "howdy",
+      "priority": 11,
+      "patterns": ["\\b(how are you|how is it going|how are things|what is up|whats up|mitä kuuluu)\\b"],
+      "keywords": { "how": 0.15, "are": 0.1, "you": 0.1, "going": 0.4 },
+      "examples": ["how are you", "how's it going", "what's up", "mitä kuuluu"],
+      "handler": "howdy"
+    },
+    {
+      "id": "daypart",
+      "priority": 10,
+      "patterns": ["\\bgood (morning|afternoon|evening|night)\\b", "\\bhyvää (huomenta|päivää|iltaa|yötä)\\b"],
+      "keywords": { "morning": 0.6, "afternoon": 0.6, "evening": 0.6, "night": 0.4, "huomenta": 0.7 },
+      "examples": ["good morning", "good afternoon", "good night", "hyvää huomenta"],
+      "handler": "daypart"
+    },
+    {
+      "id": "weather",
+      "priority": 12,
+      "patterns": ["\\b(weather|forecast|temperature outside|sää|ennuste)\\b"],
+      "keywords": { "weather": 0.8, "forecast": 0.7, "sää": 0.8 },
+      "examples": ["what is the weather", "weather today", "what's the forecast", "millainen sää"],
+      "handler": "weather"
+    },
+    {
+      "id": "origin",
+      "priority": 12,
+      "patterns": ["\\b(are you (there|online|offline|local|chatgpt|gpt|a bot|an? ai)|who made you|where are you|can you hear me)\\b"],
+      "keywords": { "chatgpt": 0.8, "online": 0.5, "offline": 0.5, "local": 0.5, "made": 0.4 },
+      "examples": ["are you chatgpt", "are you online", "are you local", "who made you", "where are you", "are you there"],
+      "handler": "origin"
+    },
+    {
+      "id": "ack",
+      "priority": 6,
+      "patterns": ["^(yes|yep|yeah|ok|okay|sure|please|joo|kyllä)$", "\\b(wow|lol|nice|cool|cute|awesome|that is cute)\\b"],
+      "keywords": { "yes": 0.4, "ok": 0.4, "wow": 0.5, "lol": 0.5, "cute": 0.4 },
+      "examples": ["yes", "ok", "wow", "lol", "that's cute"],
+      "handler": "ack"
+    },
+    {
+      "id": "deny",
+      "priority": 7,
+      "patterns": ["^(no|nope|nah|nevermind|never mind|cancel|stop|ei|älä)$", "\\b(nevermind|forget it)\\b"],
+      "keywords": { "nevermind": 0.7, "cancel": 0.6, "nope": 0.5 },
+      "examples": ["no", "nevermind", "cancel"],
+      "handler": "deny"
+    },
+    {
+      "id": "repeat",
+      "priority": 9,
+      "patterns": ["\\b(repeat( that)?|say that again|what did you say|toista)\\b"],
+      "keywords": { "repeat": 0.7, "again": 0.3, "toista": 0.7 },
+      "examples": ["repeat that", "say that again", "what did you say"],
+      "handler": "repeat"
+    },
+    {
+      "id": "play",
+      "priority": 11,
+      "patterns": ["\\b(flip a coin|coin flip|roll (a |the )?dice|heitä (kolikko|noppa)|kolikko)\\b"],
+      "keywords": { "coin": 0.7, "dice": 0.7, "flip": 0.5, "roll": 0.4, "noppa": 0.7, "kolikko": 0.7 },
+      "examples": ["flip a coin", "roll a dice", "heitä kolikkoa"],
+      "handler": "play"
+    },
+    {
+      "id": "transform",
+      "priority": 11,
+      "patterns": ["\\b(count to|reverse|spell)\\b"],
+      "keywords": { "count": 0.6, "reverse": 0.7, "spell": 0.7 },
+      "examples": ["count to 5", "reverse hello", "spell cortex"],
+      "handler": "transform"
+    },
+    {
+      "id": "convert",
+      "priority": 12,
+      "patterns": ["\\b(convert|km to|miles to|fahrenheit|celsius|kg to|lb to)\\b", "\\d+\\s*(f|c|km|mi|kg|lb)\\s+to\\s+"],
+      "keywords": { "convert": 0.6, "km": 0.4, "miles": 0.4, "celsius": 0.5, "fahrenheit": 0.5 },
+      "examples": ["convert 10 km to miles", "100 f to c", "5 kg to lb"],
+      "handler": "convert"
+    },
+    {
+      "id": "bot_opinion",
+      "priority": 11,
+      "patterns": ["\\b(do you (like|love)|your favorite|what do you prefer)\\b"],
+      "keywords": { "favorite": 0.4, "prefer": 0.4 },
+      "examples": ["do you like cats", "what is your favorite animal", "do you prefer dogs"],
+      "handler": "bot_opinion"
+    },
+    {
+      "id": "attr_qa",
+      "priority": 12,
+      "patterns": ["\\b(how many|does a |do [a-z]+ have|kuinka monta)\\b"],
+      "keywords": { "how": 0.15, "many": 0.5, "have": 0.25, "legs": 0.5, "toes": 0.5 },
+      "examples": ["how many legs does a dog have", "does a cat have 18 toes"],
+      "handler": "attr_qa"
+    },
+    {
+      "id": "emotion",
+      "priority": 10,
+      "patterns": ["\\b(i am|i'm|im) (sad|tired|angry|lonely|stressed|sick|afraid|bored)\\b", "\\bolen (surullinen|väsynyt|vihainen)\\b"],
+      "keywords": { "sad": 0.7, "tired": 0.6, "angry": 0.6, "lonely": 0.6 },
+      "examples": ["i am sad", "i'm tired", "olen surullinen"],
+      "handler": "emotion"
     },
     {
       "id": "fallback",
@@ -344,6 +470,10 @@
           "en": "A small domesticated carnivore (Felis catus), famous for night vision, righting reflex, and selective affection.",
           "fi": "Pieni kesy lihansyöjä (Felis catus), tunnettu yönaisesta, kääntymisheijasteesta ja valikoivasta hellyydestä."
         },
+        "attrs": {
+          "legs": { "en": "4", "fi": "4" },
+          "toes": { "en": "usually 18 (5 on each front paw, 4 on each back paw)", "fi": "yleensä 18 (5 etutassussa, 4 takatassussa)" }
+        },
         "facts": {
           "en": [
             "Cats purr around 25–150 Hz, a range sometimes studied for bone-healing effects.",
@@ -364,6 +494,10 @@
         "summary": {
           "en": "A domesticated pack hunter (Canis familiaris) with extraordinary scent, social intelligence, and partnership with humans.",
           "fi": "Kesy laumametsästäjä (Canis familiaris), jolla on tarkka hajuaisti, sosiaalinen äly ja kumppanuus ihmisen kanssa."
+        },
+        "attrs": {
+          "legs": { "en": "4", "fi": "4" },
+          "toes": { "en": "usually 18, though some breeds vary", "fi": "yleensä 18, roduittain vaihdellen" }
         },
         "facts": {
           "en": [
@@ -397,6 +531,57 @@
         }
       },
       {
+        "id": "horse",
+        "type": "animal",
+        "label": { "en": "horse", "fi": "hevonen" },
+        "summary": {
+          "en": "A large hoofed mammal (Equus ferus caballus), historically a partner in travel and farm work. I can talk about horses but I only draw cats and dogs.",
+          "fi": "Suuri kavioeläin (Equus ferus caballus). Voin kertoa hevosista, mutta piirrän vain kissan ja koiran."
+        },
+        "facts": {
+          "en": ["Horses can sleep both standing and lying down.", "An adult horse has 12–17 breaths per minute at rest."],
+          "fi": ["Hevonen voi nukkua seisten tai maaten.", "Aikuisen hevosen leposyke on noin 12–17 hengitystä minuutissa."]
+        },
+        "attrs": { "legs": { "en": "4", "fi": "4" } }
+      },
+      {
+        "id": "fox",
+        "type": "animal",
+        "label": { "en": "fox", "fi": "kettu" },
+        "summary": {
+          "en": "A typically nocturnal canid, often the red fox (Vulpes vulpes), known for a bushy tail and opportunistic hunting.",
+          "fi": "Yöaktiivinen koiraeläin, usein punakettu (Vulpes vulpes), tuuheahäntäinen opportunisti."
+        },
+        "facts": {
+          "en": ["Red foxes occur on every continent except Antarctica.", "A fox's whiskers help it navigate in the dark."],
+          "fi": ["Punakettua tavataan kaikilla mantereilla paitsi Etelämantereella."]
+        },
+        "attrs": { "legs": { "en": "4", "fi": "4" } }
+      },
+      {
+        "id": "bird",
+        "type": "animal",
+        "label": { "en": "bird", "fi": "lintu" },
+        "summary": {
+          "en": "Feathered, egg-laying vertebrates. Most fly; all have beaks and a high metabolism.",
+          "fi": "Höyhenpeitteisiä munivia selkärankaisia. Useimmat lentävät."
+        },
+        "facts": {
+          "en": ["Birds are the only surviving dinosaurs.", "Some birds, like kiwis, are flightless."],
+          "fi": ["Linnut ovat ainoat elävät dinosaurukset."]
+        },
+        "attrs": { "legs": { "en": "2", "fi": "2" } }
+      },
+      {
+        "id": "json",
+        "type": "system",
+        "label": { "en": "JSON", "fi": "JSON" },
+        "summary": {
+          "en": "JavaScript Object Notation: a text format for structured data. Cortex's whole skill set is a JSON document you can edit in the Brain tab.",
+          "fi": "JavaScript Object Notation: rakenteisen tiedon tekstimuoto. Cortexin taidot ovat JSON, jota voit muokata Brain-välilehdellä."
+        }
+      },
+      {
         "id": "cortex",
         "type": "system",
         "label": { "en": "Cortex", "fi": "Cortex" },
@@ -411,7 +596,11 @@
       { "from": "dog", "rel": "is_a", "to": "mammal" },
       { "from": "cat", "rel": "is_a", "to": "carnivore" },
       { "from": "dog", "rel": "is_a", "to": "carnivore" },
-      { "from": "cat", "rel": "contrasts", "to": "dog" }
+      { "from": "cat", "rel": "contrasts", "to": "dog" },
+      { "from": "horse", "rel": "is_a", "to": "mammal" },
+      { "from": "fox", "rel": "is_a", "to": "mammal" },
+      { "from": "fox", "rel": "is_a", "to": "carnivore" },
+      { "from": "json", "rel": "describes", "to": "cortex" }
     ]
   },
   "compareNotes": {
@@ -448,12 +637,78 @@
       "en": ["You're welcome. That reply was assembled from local JSON, not a server.", "Anytime. Peek at the phase rail to see which stages fired."],
       "fi": ["Ole hyvä. Vastaus koottiin paikallisesta JSONista.", "Ei kestä. Katso vasemmalta, mitkä vaiheet syttyivät."]
     },
+    "daypart": {
+      "morning": {
+        "en": ["Good morning{{nameSuffix}}. Coffee is optional; the JSON brain is already awake."],
+        "fi": ["Hyvää huomenta{{nameSuffix}}. JSON-aivot ovat jo hereillä."]
+      },
+      "afternoon": {
+        "en": ["Good afternoon{{nameSuffix}}. Still offline, still in this tab."],
+        "fi": ["Hyvää päivää{{nameSuffix}}. Yhä ilman pilveä, yhä tässä välilehdessä."]
+      },
+      "evening": {
+        "en": ["Good evening{{nameSuffix}}. The ten phases don't clock off."],
+        "fi": ["Hyvää iltaa{{nameSuffix}}. Kymmenen vaihetta eivät lopeta vuoroa."]
+      },
+      "night": {
+        "en": ["Good night{{nameSuffix}}. Memory stays in this browser until you reset it."],
+        "fi": ["Hyvää yötä{{nameSuffix}}. Muisti jää selaimeen kunnes nollaat sen."]
+      }
+    },
+    "howdy": {
+      "en": [
+        "Doing well{{nameSuffix}} — still entirely on-device, no cloud round-trip.",
+        "All ten phases are idle and local. How can I help: cat, fact, or math?"
+      ],
+      "fi": [
+        "Hyvin menee{{nameSuffix}} — yhä kokonaan laitteella, ilman pilveä.",
+        "Kymmenen vaihetta odottavat tässä selaimessa. Kissa, fakta vai lasku?"
+      ]
+    },
+    "weather": {
+      "en": [
+        "I don't call weather APIs. This engine stays offline — look outside, or use a weather app.",
+        "No forecast from here: Cortex has no network inference, and no weather feed either."
+      ],
+      "fi": [
+        "En hae säätä verkosta. Tämä moottori pysyy offline — katso ikkunasta tai sääsovelluksesta.",
+        "Ei ennustetta: Cortexilla ei ole sääsyötettä eikä pilvipäättelyä."
+      ]
+    },
+    "origin": {
+      "en": [
+        "I'm Cortex: JSON plus a JavaScript pipeline in this page. Not ChatGPT, not an online model, not a remote server.",
+        "I live in your browser tab. Who made this file set is whoever shipped the repo — the replies are assembled here."
+      ],
+      "fi": [
+        "Olen Cortex: JSON ja JavaScript-putki tässä sivussa. En ole ChatGPT enkä etämalli.",
+        "Asun tässä selainvälilehdessä. Vastaukset kootaan täällä, ei pilvessä."
+      ]
+    },
+    "emotion": {
+      "sad": {
+        "en": ["Sorry you're sad. I'm only a local script, but I'm here in this tab if a cat drawing or a joke would help."],
+        "fi": ["Ikävää kuulla. Olen vain paikallinen skripti, mutta kissapiirros tai vitsi on tässä välilehdessä."]
+      },
+      "tired": {
+        "en": ["Rest is allowed. I can keep things small: a cat, or nothing at all."],
+        "fi": ["Lepo on sallittua. Voin pitää asiat pieninä: kissa, tai ei mitään."]
+      },
+      "angry": {
+        "en": ["I'll stay even. No cloud to escalate anything — just this JSON brain."],
+        "fi": ["Pysyn tasaisena. Ei pilveä kiihdyttämään — vain nämä JSON-aivot."]
+      },
+      "lonely": {
+        "en": ["Company from a script is thin, but I'm in this tab. Want a cat or a dog?"],
+        "fi": ["Skriptin seura on ohutta, mutta olen tässä. Haluatko kissan tai koiran?"]
+      }
+    },
     "identity": {
       "en": ["I'm Cortex, an on-device conversational engine. Intents, entities, facts, and personality live in brain.json. JavaScript runs a 10-phase pipeline. There is no model API call."],
       "fi": ["Olen Cortex, laitteella toimiva keskustelumoottori. Aikeet, entiteetit, faktat ja persoona ovat tiedostossa brain.json. JavaScript ajaa 10 vaihetta. Mallirajapintaa ei ole."]
     },
     "capabilities": {
-      "en": ["I can greet you in English or Finnish, draw cats and dogs, pull animal facts from a knowledge graph, do arithmetic, remember your name and favorites, learn a custom when-I-say rule, tell the local time, and show a live trace of all ten phases. Try: cat · tell me about dogs · my name is Aino · when I say ping reply pong · what is 12*7"],
+      "en": ["I can greet you in English or Finnish, draw cats and dogs, talk about horses/foxes/birds without drawing them, pull facts from a knowledge graph, do arithmetic (including word numbers and 2+2+2), convert km/miles and °C/°F, remember your name and favorites, learn a when-I-say rule, flip a coin, reverse text, tell the local time, and show a live trace of all ten phases. Try: cat · show me a horse · two plus two · 10 km to miles · how are you · flip a coin"],
       "fi": ["Osaan tervehtiä suomeksi tai englanniksi, piirtää kissoja ja koiria, hakea faktoja tietoverkosta, laskea, muistaa nimesi, oppia kun-sanon-säännön, kertoa kellon ja näyttää kymmenen vaiheen jäljen. Kokeile: kissa · kerro koirista · nimeni on Aino · laske 12*7"]
     },
     "fallback": {
@@ -467,6 +722,10 @@
       ]
     }
   },
+  "attributes": {
+    "legs": ["legs", "leg", "jalkaa", "paws", "paw"],
+    "toes": ["toes", "toe", "varvasta", "varpaat"]
+  },
   "safety": {
     "block_patterns": ["\\b(api[_-]?key|sk-[a-z0-9]{10,})\\b"],
     "blocked": {
@@ -475,7 +734,7 @@
     }
   },
   "suggestions": {
-    "en": ["cat", "dog", "both", "How do you work?", "Tell me about cats", "What is 12 * 7", "My name is Aino"],
+      "en": ["cat", "dog", "both", "How do you work?", "How are you?", "two plus two", "10 km to miles", "flip a coin"],
     "fi": ["kissa", "koira", "molemmat", "Miten toimit?", "Kerro kissoista", "Laske 12 * 7", "Nimeni on Aino"]
   }
 }

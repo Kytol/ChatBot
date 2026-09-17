@@ -47,9 +47,12 @@ Then `ping` is answered from local memory, still with no cloud call.
 
 ## What to try
 
-- `cat` / `dog` / `both` / `kissa` / `molemmat` — local SVG, successor to the old image replies
-- `tell me about dogs` — graph retrieval
-- `is a cat a mammal` — edge check
-- `what is 12 * 7` — local arithmetic
-- `my name is Aino` then `what is my name`
+- `cat` / `dog` / `both` / `kissa` / `molemmat` / typos like `cta` — local SVG
+- `show me a horse` / `tell me about foxes` — facts without a drawing
+- `tell me about dogs` · `is a cat a mammal` · `how many legs does a dog have`
+- `what is 12 * 7` · `two plus two` · `2+2+2` · `10% of 50` · `square root of 9`
+- `10 km to miles` · `100 F to C`
+- `my name is Aino` · `call me Sam` · `when I say ping reply pong`
+- `how are you` · `good morning` · `what's the weather` (honest offline)
+- `flip a coin` · `count to 5` · `reverse hello`
 - `how do you work?` — the pipeline in plain language

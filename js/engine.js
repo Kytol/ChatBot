@@ -61,6 +61,158 @@
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
+  const WORD_NUM = {
+    zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+    ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+    seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+    sixty: 60, seventy: 70, eighty: 80, ninety: 90
+  };
+  const NAME_STOP = new Set([
+    "sad", "fine", "good", "ok", "okay", "hungry", "tired", "called", "not", "so", "just",
+    "here", "back", "ready", "sorry", "happy", "cat", "dog", "a", "an", "the", "lost",
+    "bored", "angry", "lonely", "stressed", "sick", "well", "great", "confused", "afraid"
+  ]);
+  const EMOTIONS = {
+    sad: "sad", tired: "tired", angry: "angry", lonely: "lonely", stressed: "stressed",
+    sick: "sick", afraid: "afraid", bored: "bored", happy: "happy", excited: "excited",
+    surullinen: "sad", väsynyt: "tired", vihainen: "angry"
+  };
+
+  function formatNum(n) {
+    if (!Number.isFinite(n)) return null;
+    if (Number.isInteger(n)) return String(n);
+    const r = Math.round(n * 10000) / 10000;
+    return String(r);
+  }
+
+  function adjacentTranspose(a, b) {
+    if (!a || !b || a.length !== b.length || a.length < 3) return false;
+    const diffs = [];
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diffs.push(i);
+    return diffs.length === 2 && diffs[1] === diffs[0] + 1 && a[diffs[0]] === b[diffs[1]] && a[diffs[1]] === b[diffs[0]];
+  }
+
+  function hasKeyword(perceived, word) {
+    const w = String(word).toLowerCase();
+    if (perceived.tokens.includes(w) || perceived.stems.includes(w)) return true;
+    return new RegExp("\\b" + escapeRe(w) + "\\b", "i").test(perceived.normalized);
+  }
+
+  function replaceWordNumbers(text) {
+    let s = String(text);
+    Object.keys(WORD_NUM)
+      .sort((a, b) => b.length - a.length)
+      .forEach((w) => {
+        s = s.replace(new RegExp("\\b" + w + "\\b", "gi"), String(WORD_NUM[w]));
+      });
+    return s;
+  }
+
+  function rewriteMathWords(text) {
+    return String(text)
+      .toLowerCase()
+      .replace(/\bplus\b/g, "+")
+      .replace(/\bminus\b/g, "-")
+      .replace(/\b(?:times|multiplied by)\b/g, "*")
+      .replace(/\bdivided by\b/g, "/")
+      .replace(/\bover\b/g, "/")
+      .replace(/\bx\b/g, "*")
+      .replace(/×/g, "*")
+      .replace(/÷/g, "/");
+  }
+
+  function evalArithmetic(expr) {
+    const tokens = [];
+    const src = String(expr).replace(/\s+/g, "");
+    const re = /([+\-*/])|(-?\d+(?:\.\d+)?)/g;
+    let m;
+    while ((m = re.exec(src))) {
+      if (m[2] != null) {
+        tokens.push({ type: "n", v: parseFloat(m[2]) });
+      } else if (m[1]) {
+        tokens.push({ type: "o", v: m[1] });
+      }
+    }
+    if (tokens.length < 3) return null;
+    const nums = [];
+    const ops = [];
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].type === "n") nums.push(tokens[i].v);
+      else ops.push(tokens[i].v);
+    }
+    if (!nums.length || ops.length !== nums.length - 1) return null;
+    function reduce(want) {
+      let i = 0;
+      while (i < ops.length) {
+        if (want.includes(ops[i])) {
+          const a = nums[i];
+          const b = nums[i + 1];
+          let v;
+          if (ops[i] === "*") v = a * b;
+          else if (ops[i] === "/") {
+            if (b === 0) return { error: "div0" };
+            v = a / b;
+          } else if (ops[i] === "+") v = a + b;
+          else v = a - b;
+          if (!Number.isFinite(v)) return { error: "nan" };
+          nums.splice(i, 2, v);
+          ops.splice(i, 1);
+        } else i += 1;
+      }
+      return null;
+    }
+    const err = reduce(["*", "/"]) || reduce(["+", "-"]);
+    if (err) return err;
+    if (nums.length !== 1) return null;
+    return { pretty: formatNum(nums[0]), expr: src };
+  }
+
+  function parseMath(text) {
+    const lowered = replaceWordNumbers(String(text).toLowerCase());
+    const s = rewriteMathWords(lowered);
+    const pct = s.match(/(-?\d+(?:[.,]\d+)?)\s*%\s*(?:of\s*)?(-?\d+(?:[.,]\d+)?)/);
+    if (pct) {
+      const v = parseFloat(pct[1].replace(",", ".")) * parseFloat(pct[2].replace(",", ".")) / 100;
+      return { pretty: formatNum(v), expr: pct[1] + "% of " + pct[2] };
+    }
+    const sqrt = s.match(/(?:square root (?:of )?|sqrt\s*)(-?\d+(?:[.,]\d+)?)/);
+    if (sqrt) {
+      const n = parseFloat(sqrt[1].replace(",", "."));
+      if (n < 0) return { error: "sqrt" };
+      return { pretty: formatNum(Math.sqrt(n)), expr: "√" + n };
+    }
+    const div = s.match(/divid(?:e|ed)\s+(-?\d+(?:[.,]\d+)?)\s+by\s+(-?\d+(?:[.,]\d+)?)/);
+    if (div) {
+      const a = parseFloat(div[1].replace(",", "."));
+      const b = parseFloat(div[2].replace(",", "."));
+      if (b === 0) return { error: "div0" };
+      return { pretty: formatNum(a / b), expr: a + "/" + b };
+    }
+    const chain = s.match(/-?\d+(?:[.,]\d+)?(?:\s*[+\-*/]\s*-?\d+(?:[.,]\d+)?)+/);
+    if (chain) return evalArithmetic(chain[0].replace(/,/g, "."));
+    return null;
+  }
+
+  function parseConversion(text) {
+    const s = replaceWordNumbers(String(text).toLowerCase());
+    const rules = [
+      { re: /(-?\d+(?:[.,]\d+)?)\s*(kilometers?|km)\s*(?:to|in)\s*(miles?|mi)/, fn: (n) => n * 0.621371, unit: "miles" },
+      { re: /(-?\d+(?:[.,]\d+)?)\s*(miles?|mi)\s*(?:to|in)\s*(kilometers?|km)/, fn: (n) => n / 0.621371, unit: "km" },
+      { re: /(-?\d+(?:[.,]\d+)?)\s*(?:°\s*)?(fahrenheit|f)\s*(?:to|in)\s*(?:°\s*)?(celsius|c)/, fn: (n) => (n - 32) * 5 / 9, unit: "°C" },
+      { re: /(-?\d+(?:[.,]\d+)?)\s*(?:°\s*)?(celsius|c)\s*(?:to|in)\s*(?:°\s*)?(fahrenheit|f)/, fn: (n) => n * 9 / 5 + 32, unit: "°F" },
+      { re: /(-?\d+(?:[.,]\d+)?)\s*(kilograms?|kg)\s*(?:to|in)\s*(pounds?|lbs|lb)/, fn: (n) => n * 2.20462, unit: "lb" },
+      { re: /(-?\d+(?:[.,]\d+)?)\s*(pounds?|lbs|lb)\s*(?:to|in)\s*(kilograms?|kg)/, fn: (n) => n / 2.20462, unit: "kg" }
+    ];
+    for (let i = 0; i < rules.length; i++) {
+      const m = s.match(rules[i].re);
+      if (m) {
+        const n = parseFloat(m[1].replace(",", "."));
+        return { pretty: formatNum(rules[i].fn(n)), unit: rules[i].unit, from: m[0] };
+      }
+    }
+    return null;
+  }
+
   function levenshtein(a, b) {
     if (a === b) return 0;
     const m = a.length;
@@ -198,11 +350,25 @@
 
   function perceive(text, brain) {
     const raw = String(text || "");
-    const normalized = raw
+    let normalized = raw
       .trim()
       .replace(/\s+/g, " ")
       .replace(/[¡!?.]+$/g, "")
-      .toLowerCase();
+      .toLowerCase()
+      .replace(/\bwhat's\b/g, "what is")
+      .replace(/\bwhats\b/g, "what is")
+      .replace(/\bwho's\b/g, "who is")
+      .replace(/\bhow's\b/g, "how is")
+      .replace(/\bi'm\b/g, "i am")
+      .replace(/\bcan't\b/g, "can not")
+      .replace(/\baren't\b/g, "are not")
+      .replace(/\bwon't\b/g, "will not")
+      .replace(/\blet's\b/g, "let us")
+      .replace(/\bsee ya\b/g, "see you")
+      .replace(/\bcya\b/g, "see you")
+      .replace(/\bhow r u\b/g, "how are you")
+      .replace(/\br u\b/g, "are you")
+      .replace(/\bwow+\b/g, "wow");
     const tokens = (normalized.match(/[\p{L}\p{N}]+/gu) || []).map((t) => t.toLowerCase());
     const synonyms = brain.lexicon.synonyms || {};
     const stems = tokens.map((t) => stem(t, synonyms));
@@ -230,6 +396,7 @@
       content,
       lang,
       sentiment,
+      empty: !normalized,
       vec: charNgrams(normalized, 3)
     };
   }
@@ -237,6 +404,10 @@
   function extractEntities(perceived, brain) {
     const found = Object.create(null);
     const hay = perceived.stems.concat(perceived.tokens);
+    const FUZZY_SKIP = new Set([
+      "does", "have", "this", "that", "with", "from", "they", "them", "then", "than",
+      "were", "been", "will", "what", "when", "where", "your", "you", "are", "and"
+    ]);
     Object.keys(brain.entities || {}).forEach((slot) => {
       const spec = brain.entities[slot];
       if (spec.type !== "gazetteer") return;
@@ -244,23 +415,57 @@
         spec.values[canonical].forEach((alias) => {
           const a = alias.toLowerCase();
           hay.forEach((tok) => {
-            if (tok === a || tok === stem(a, brain.lexicon.synonyms)) {
-              found[slot] = canonical;
-            } else if (tok.length >= 4 && a.length >= 4 && levenshtein(tok, a) === 1) {
+            if (tok === a || tok === stem(a, brain.lexicon.synonyms)) found[slot] = canonical;
+          });
+        });
+      });
+      if (found[slot]) return;
+      Object.keys(spec.values).forEach((canonical) => {
+        spec.values[canonical].forEach((alias) => {
+          const a = alias.toLowerCase();
+          hay.forEach((tok) => {
+            if (FUZZY_SKIP.has(tok)) return;
+            if (tok.length >= 4 && a.length >= 4 && levenshtein(tok, a) === 1) found[slot] = canonical;
+            else if (adjacentTranspose(tok, a) || adjacentTranspose(tok, stem(a, brain.lexicon.synonyms))) {
               found[slot] = canonical;
             }
           });
         });
       });
     });
-    const math = perceived.normalized.match(/(-?\d+(?:[.,]\d+)?)\s*([+\-*/x×÷])\s*(-?\d+(?:[.,]\d+)?)/);
-    if (math) {
-      found.left = math[1].replace(",", ".");
-      found.op = math[2];
-      found.right = math[3].replace(",", ".");
+
+    const attrs = brain.attributes || {};
+    Object.keys(attrs).forEach((key) => {
+      (attrs[key] || []).forEach((alias) => {
+        if (hasKeyword(perceived, alias)) found.attr = key;
+      });
+    });
+
+    const mathHit = parseMath(perceived.normalized);
+    if (mathHit) {
+      found.math = mathHit;
+      if (mathHit.pretty && !mathHit.error) {
+        const pair = perceived.normalized.match(/(-?\d+(?:[.,]\d+)?)\s*([+\-*/x×÷]|plus|minus|times)\s*(-?\d+(?:[.,]\d+)?)/i);
+        if (pair) {
+          found.left = pair[1].replace(",", ".");
+          found.op = pair[2];
+          found.right = pair[3].replace(",", ".");
+        }
+      }
     }
-    const name = perceived.raw.match(/\b(?:my name is|i am|i'm|nimeni on|olen)\s+([A-Za-zÀ-öø-ÿ][\wÀ-öø-ÿ-]{1,32})/i);
-    if (name) found.personName = name[1];
+
+    const conv = parseConversion(perceived.normalized);
+    if (conv) found.conversion = conv;
+
+    const callMe = perceived.raw.match(/\b(?:call me|kutsu minua)\s+([A-Za-zÀ-öø-ÿ][\wÀ-öø-ÿ'-]{0,32})/i);
+    const myName = perceived.raw.match(/\b(?:my name is|my name's|nimeni on|i am called|i'm called)\s+([A-Za-zÀ-öø-ÿ][\wÀ-öø-ÿ'-]{0,32})/i);
+    const iAm = perceived.raw.match(/\bI am\s+([A-Za-zÀ-öø-ÿ][\wÀ-öø-ÿ'-]{0,32})/);
+    let person = (callMe && callMe[1]) || (myName && myName[1]) || null;
+    if (!person && iAm && /^[A-ZÀ-Ö]/.test(iAm[1]) && !NAME_STOP.has(iAm[1].toLowerCase())) person = iAm[1];
+    if (person && !NAME_STOP.has(person.toLowerCase()) && !/^(called|a|an|the)$/i.test(person)) {
+      found.personName = person;
+    }
+
     const teach = perceived.raw.match(/when i say\s+(.+?)\s+(?:reply|say|respond)\s+(.+)/i);
     const teachFi = perceived.raw.match(/kun sanon\s+(.+?)\s+(?:vastaa|sano)\s+(.+)/i);
     if (teach) {
@@ -272,7 +477,36 @@
     }
     const factTeach = perceived.raw.match(/remember that\s+(.+)/i);
     if (factTeach) found.note = factTeach[1].trim();
+
+    const emotionTok = perceived.tokens.find((t) => EMOTIONS[t]);
+    if (emotionTok) found.emotion = EMOTIONS[emotionTok];
+
+    const countTo = perceived.normalized.match(/\bcount(?:ing)? to (\d{1,3})\b/);
+    if (countTo) found.countTo = Math.min(40, parseInt(countTo[1], 10));
+
+    const reverse = perceived.normalized.match(/\breverse(?:\s+word)?\s+(.+)/);
+    if (reverse) found.reverse = reverse[1].trim();
+    const spell = perceived.normalized.match(/\bspell\s+([a-zà-öø-ÿ-]+)/i);
+    if (spell) found.spell = spell[1];
+
+    const nodes = (brain.graph && brain.graph.nodes) || [];
+    nodes.forEach((n) => {
+      const labels = [n.id, loc(n.label, "en"), loc(n.label, "fi")].filter(Boolean).map((s) => String(s).toLowerCase());
+      labels.forEach((lab) => {
+        if (!lab) return;
+        if (hasKeyword(perceived, lab) || perceived.stems.includes(lab) || perceived.tokens.includes(lab)) {
+          found.node = n.id;
+          if (n.type === "animal") found.animal = found.animal || n.id;
+        }
+      });
+    });
+
     return found;
+  }
+
+  function foundPersonCue(perceived) {
+    return /\b(my name is|my name's|nimeni on|call me|i am called|i'm called|kutsu minua)\b/i.test(perceived.raw) ||
+      /\bI am\s+[A-ZÀ-Ö]/.test(perceived.raw);
   }
 
   function scoreIntent(perceived, intent) {
@@ -284,10 +518,7 @@
     });
     const kw = intent.keywords || {};
     Object.keys(kw).forEach((word) => {
-      const w = word.toLowerCase();
-      if (perceived.stems.includes(w) || perceived.tokens.includes(w) || perceived.normalized.includes(w)) {
-        score += kw[word];
-      }
+      if (hasKeyword(perceived, word)) score += kw[word];
     });
     let bestEx = 0;
     (intent.examples || []).forEach((ex) => {
@@ -295,8 +526,16 @@
     });
     score += bestEx * 0.55;
     score += (intent.priority || 0) * 0.012;
-    if (intent.id === "show_media" && /^(cat|dog|both|kissa|koira|molemmat)$/i.test(perceived.normalized)) {
+    if (intent.id === "show_media" && /^(cat|dog|both|kissa|koira|molemmat|kitty|puppy|dgo|cta)$/i.test(perceived.normalized)) {
       score += 0.5;
+    }
+    if (intent.id === "math" && !parseMath(perceived.normalized)) score *= 0.05;
+    if (intent.id === "datetime" && /\btimes\b/.test(perceived.normalized) && !/\b(time|date|kello|day|year)\b/.test(perceived.normalized)) {
+      score *= 0.05;
+    }
+    if (intent.id === "remember_name" && !foundPersonCue(perceived)) score *= 0.08;
+    if (intent.id === "yes_no" && /\b(how are you|are you there|are you (chatgpt|gpt|online|offline|local|a bot))\b/.test(perceived.normalized)) {
+      score *= 0.05;
     }
     if (intent.id === "teach" && !/\b(when i say|if i say|teach|remember that|kun sanon|opeta)\b/i.test(perceived.normalized)) {
       score *= 0.08;
@@ -337,13 +576,20 @@
     return out.replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim();
   }
 
-  function animalLabel(id, lang) {
+  function animalLabel(id, lang, brain) {
     const map = {
       cat: { en: "cat", fi: "kissa" },
       dog: { en: "dog", fi: "koira" },
       both: { en: "cat and dog", fi: "kissa ja koira" }
     };
-    return (map[id] && map[id][lang]) || id || "";
+    if (map[id] && map[id][lang]) return map[id][lang];
+    const n = brain && brain._nodeById && brain._nodeById[id];
+    if (n) return loc(n.label, lang) || id;
+    return id || "";
+  }
+
+  function canDraw(animal) {
+    return animal === "cat" || animal === "dog" || animal === "both";
   }
 
   function renderSprites(animal) {
@@ -402,7 +648,8 @@
       lastIntent: null,
       awaiting: null,
       slots: {},
-      lang: store.lang || "en"
+      lang: store.lang || "en",
+      lastReply: ""
     };
 
     function tracesPush(traces, phase, id, title, detail, activation) {
@@ -467,15 +714,28 @@
           ranked.sort((a, b) => b.score - a.score);
         }
       }
-      if (entities.left && entities.op && entities.right) prefer("math");
+      if (entities.math) prefer("math");
+      else if (entities.left && entities.op && entities.right) prefer("math");
       else ranked.forEach((r) => {
-        if (r.id === "math" && !entities.left) r.score *= 0.15;
+        if (r.id === "math" && !entities.math && !entities.left) r.score *= 0.15;
       });
-      if (/^(cat|dog|both|kissa|koira|molemmat)$/i.test(perceived.normalized)) prefer("show_media");
-      if (/\b(tell me about|what is a|facts? about|kerro|tietoa)\b/i.test(perceived.normalized)) prefer("animal_fact");
-      if (/\b(is a |are |onko )/.test(perceived.normalized) && !entities.left) prefer("yes_no");
-      if (/\b(my name is|nimeni on)\b/i.test(perceived.normalized)) prefer("remember_name");
-      if (/\b(i (like|love|prefer)|favorite)\b/i.test(perceived.normalized)) prefer("remember_pref");
+      if (entities.conversion) prefer("convert");
+      if (/^(cat|dog|both|kissa|koira|molemmat|kitty|puppy)$/i.test(perceived.normalized) || adjacentTranspose(perceived.normalized, "cat") || adjacentTranspose(perceived.normalized, "dog")) prefer("show_media");
+      if (entities.node && /\b(what is|what is a|tell me about|facts? about|kerro)\b/.test(perceived.normalized) && !entities.math) prefer("animal_fact");
+      if (/^(is|are|onko)\b/.test(perceived.normalized) && !entities.math && !/\bare you\b/.test(perceived.normalized)) prefer("yes_no");
+      if (foundPersonCue(perceived)) prefer("remember_name");
+      if (/\b(i (like|love|prefer)|favorite animal is|tykkään|rakastan)\b/i.test(perceived.normalized) && !/\b(do you|your favorite)\b/i.test(perceived.normalized)) prefer("remember_pref");
+      if (/\b(how are you|how is it going|what is up|mitä kuuluu)\b/.test(perceived.normalized)) prefer("howdy");
+      if (/\bgood (morning|afternoon|evening|night|huomenta|päivää|iltaa|yötä)\b/.test(perceived.normalized)) prefer("daypart");
+      if (/\b(weather|forecast|sää)\b/.test(perceived.normalized)) prefer("weather");
+      if (/\b(are you (there|online|offline|local|chatgpt|gpt|a bot)|who made you|where are you)\b/.test(perceived.normalized)) prefer("origin");
+      if (/\b(do you (like|love)|your favorite)\b/.test(perceived.normalized)) prefer("bot_opinion");
+      if (/\b(how many|does a |do .+ have)\b/.test(perceived.normalized) && (entities.attr || entities.animal)) prefer("attr_qa");
+      if (/\b(flip|coin|dice|die|noppa|kolikko)\b/.test(perceived.normalized)) prefer("play");
+      if (/\b(reverse|spell|count to)\b/.test(perceived.normalized)) prefer("transform");
+      if (/\b(repeat|say that again|what did you say|toista)\b/.test(perceived.normalized)) prefer("repeat");
+      if (entities.emotion && !foundPersonCue(perceived)) prefer("emotion");
+      if (perceived.empty) prefer("empty");
       ranked.sort((a, b) => b.score - a.score);
 
       let top = ranked[0];
@@ -483,9 +743,25 @@
         top = ranked.find((r) => r.id === "fallback") || { id: "fallback", handler: "fallback", score: 0, intent: { id: "fallback" } };
       }
 
+      if (perceived.empty) {
+        top = ranked.find((r) => r.id === "empty") || { id: "empty", handler: "empty", score: 1, intent: { id: "empty" } };
+      }
+
+      const isAck = /^(yes|yep|yeah|ok|okay|sure|please|joo|kyllä)$/i.test(perceived.normalized);
+      const isDeny = /^(no|nope|nah|nevermind|never mind|cancel|stop|ei|älä)$/i.test(perceived.normalized);
+
       if (state.awaiting === "animal" && entities.animal) {
         top = ranked.find((r) => r.id === "show_media") || top;
         state.awaiting = null;
+      } else if (state.awaiting === "animal" && isAck) {
+        if (state.topic) {
+          entities.animal = state.topic;
+          top = ranked.find((r) => r.id === "show_media") || { id: "show_media", handler: "media", score: 1 };
+          state.awaiting = null;
+        }
+      } else if (state.awaiting && isDeny) {
+        state.awaiting = null;
+        top = ranked.find((r) => r.id === "deny") || { id: "deny", handler: "deny", score: 1 };
       }
 
       const looksLikeTeach = /\b(when i say|if i say|teach you|remember that|kun sanon|opeta)\b/i.test(
@@ -499,8 +775,11 @@
 
       if (top.id === "more_info" && state.topic) {
         entities.animal = entities.animal || state.topic;
-        if (state.lastIntent === "show_media") top = ranked.find((r) => r.id === "show_media") || top;
-        else top = ranked.find((r) => r.id === "animal_fact") || top;
+        if (/\b(another|again|uudestaan)\b/.test(perceived.normalized) || state.lastIntent === "show_media" && /\banother\b/.test(perceived.normalized)) {
+          top = ranked.find((r) => r.id === "show_media") || top;
+        } else {
+          top = ranked.find((r) => r.id === "animal_fact") || top;
+        }
       }
 
       if (entities.animal) state.topic = entities.animal === "both" ? "cat" : entities.animal;
@@ -542,8 +821,8 @@
       const vars = {
         userName: store.userName,
         nameSuffix: store.userName ? ", " + store.userName : "",
-        animal: animalLabel(entities.animal, lang),
-        favorite: animalLabel(store.favoriteAnimal, lang)
+        animal: animalLabel(entities.animal, lang, brain),
+        favorite: animalLabel(store.favoriteAnimal, lang, brain)
       };
 
       let draft = { text: "", html: "", suggestions: loc(brain.suggestions, lang) };
@@ -574,13 +853,20 @@
             if (!animal) {
               draft.text = loc(flow && flow.ask, lang);
               state.awaiting = "animal";
+            } else if (!canDraw(animal)) {
+              const n = graphLookup(brain, animal);
+              const fact = n ? loc(n.summary, lang) : "";
+              draft.text =
+                lang === "fi"
+                  ? `Osaan piirtää vain kissan ja koiran. ${fact}`.trim()
+                  : `I only draw cats and dogs locally. ${fact}`.trim();
             } else {
               draft.html = renderSprites(animal);
               draft.text =
                 lang === "fi"
-                  ? `Tässä ${animalLabel(animal, "fi")} — piirretty paikallisesti, ei kuva-APIa.`
-                  : `Here is a ${animalLabel(animal, "en")} — drawn locally, no image API.`;
-              if (node) {
+                  ? `Tässä ${animalLabel(animal, "fi", brain)} — piirretty paikallisesti, ei kuva-APIa.`
+                  : `Here is a ${animalLabel(animal, "en", brain)} — drawn locally, no image API.`;
+              if (node && node.facts) {
                 const extra = pick(node.facts[lang] || node.facts.en || []);
                 if (extra) draft.text += " " + extra;
               }
@@ -588,10 +874,10 @@
             break;
           }
           case "graph_qa": {
-            const subj = entities.animal === "both" ? "cat" : entities.animal;
+            const subj = entities.animal === "both" ? "cat" : entities.animal || entities.node;
             const n = graphLookup(brain, subj) || (hits[0] && hits[0].kind !== "intent" && brain._nodeById[hits[0].id]);
             if (n) {
-              const fact = pick(n.facts[lang] || n.facts.en || []) || loc(n.summary, lang);
+              const fact = pick((n.facts && (n.facts[lang] || n.facts.en)) || []) || loc(n.summary, lang);
               draft.text = loc(n.summary, lang) + (fact && fact !== loc(n.summary, lang) ? " " + fact : "");
               state.topic = n.id;
             } else {
@@ -628,8 +914,8 @@
               store.favoriteAnimal = entities.animal;
               draft.text =
                 lang === "fi"
-                  ? `Muistan: pidät lajista ${animalLabel(entities.animal, "fi")}.`
-                  : `I'll remember you like ${animalLabel(entities.animal, "en")}s.`;
+                  ? `Muistan: pidät lajista ${animalLabel(entities.animal, "fi", brain)}.`
+                  : `I'll remember you like ${animalLabel(entities.animal, "en", brain)}s.`;
             } else if (entities.note) {
               store.facts.push({ text: entities.note, at: Date.now() });
               draft.text = lang === "fi" ? "Tallennettu paikallisiin muistiinpanoihin." : "Saved to local notes.";
@@ -644,8 +930,8 @@
             if (store.favoriteAnimal) {
               bits.push(
                 lang === "fi"
-                  ? `lempilajisi on ${animalLabel(store.favoriteAnimal, "fi")}`
-                  : `your favorite is the ${animalLabel(store.favoriteAnimal, "en")}`
+                  ? `lempilajisi on ${animalLabel(store.favoriteAnimal, "fi", brain)}`
+                  : `your favorite is the ${animalLabel(store.favoriteAnimal, "en", brain)}`
               );
             }
             if (store.facts.length) bits.push(store.facts[store.facts.length - 1].text);
@@ -675,21 +961,34 @@
             break;
           }
           case "math": {
-            const m = applyMath(entities);
-            if (m) {
-              draft.text = lang === "fi" ? `${m.left} ${m.op} ${m.right} = ${m.pretty}` : `${m.left} ${m.op} ${m.right} = ${m.pretty}`;
+            const m = entities.math || applyMath(entities);
+            if (m && m.error === "div0") {
+              draft.text = lang === "fi" ? "Nollalla ei voi jakaa." : "Division by zero isn't defined. Try another pair of numbers.";
+            } else if (m && m.error === "sqrt") {
+              draft.text = lang === "fi" ? "Negatiivisen neliöjuuri ei ole reaalinen tässä moottorissa." : "I only take real square roots of non-negative numbers.";
+            } else if (m && m.pretty) {
+              draft.text = m.expr ? `${m.expr} = ${m.pretty}` : m.pretty;
             } else {
-              draft.text = lang === "fi" ? "Anna lasku kuten 12 * 7." : "Give me an expression like 12 * 7.";
+              draft.text = lang === "fi" ? "Anna lasku kuten 12 * 7 tai two plus two." : "Give me an expression like 12 * 7, 2+2+2, or two plus two.";
             }
             break;
           }
           case "datetime": {
             const now = new Date();
             const locale = lang === "fi" ? "fi-FI" : "en-GB";
-            draft.text =
-              lang === "fi"
-                ? `Paikallinen aika tässä laitteessa: ${now.toLocaleString(locale)}.`
-                : `Local device time: ${now.toLocaleString(locale)}.`;
+            if (/\b(year|vuosi)\b/.test(perceived.normalized)) {
+              draft.text = String(now.getFullYear());
+            } else if (/\b(day|date|päivä|päivämäärä)\b/.test(perceived.normalized) && !/\btime|kello\b/.test(perceived.normalized)) {
+              draft.text =
+                lang === "fi"
+                  ? `Tänään on ${now.toLocaleDateString(locale, { weekday: "long", year: "numeric", month: "long", day: "numeric" })}.`
+                  : `Today is ${now.toLocaleDateString(locale, { weekday: "long", year: "numeric", month: "long", day: "numeric" })}.`;
+            } else {
+              draft.text =
+                lang === "fi"
+                  ? `Paikallinen aika tässä laitteessa: ${now.toLocaleString(locale)}.`
+                  : `Local device time: ${now.toLocaleString(locale)}.`;
+            }
             break;
           }
           case "joke": {
@@ -719,6 +1018,168 @@
             else if (/suomeksi|finnish/i.test(perceived.normalized)) store.lang = "fi";
             else store.lang = "en";
             draft.text = store.lang === "fi" ? "Puhun suomea." : "I'll speak English.";
+            break;
+          }
+          case "empty": {
+            draft.text =
+              lang === "fi"
+                ? "Kirjoita jotain — kissa, lasku, tai vaikka “mitä kuuluu”."
+                : "Type something — cat, a sum, or even “how are you”.";
+            break;
+          }
+          case "howdy": {
+            draft.text = fillTemplate(
+              pick(loc(brain.responses.howdy, lang) || ["I'm well — still fully on-device."]),
+              vars
+            );
+            break;
+          }
+          case "daypart": {
+            const hour = new Date().getHours();
+            let part = "afternoon";
+            if (/\b(night|yötä)\b/.test(perceived.normalized) || hour >= 21 || hour < 5) part = "night";
+            else if (/\b(morning|huomenta)\b/.test(perceived.normalized) || hour < 12) part = "morning";
+            else if (/\b(evening|iltaa)\b/.test(perceived.normalized) || hour >= 17) part = "evening";
+            const block = brain.responses.daypart && brain.responses.daypart[part];
+            draft.text = fillTemplate(pick(loc(block, lang) || ["Good " + part + "{{nameSuffix}}."]), vars);
+            break;
+          }
+          case "weather": {
+            draft.text = pick(loc(brain.responses.weather, lang) || [
+              "I don't call weather APIs. This engine stays offline — check a window or a local app."
+            ]);
+            break;
+          }
+          case "origin": {
+            const n = perceived.normalized;
+            if (/\b(are you there|can you hear me)\b/.test(n) && !/\b(chatgpt|gpt|online)\b/.test(n)) {
+              draft.text =
+                lang === "fi"
+                  ? "Täällä. Yhä tässä välilehdessä, yhä ilman pilvipäättelyä."
+                  : "Here. Still in this tab, still no cloud inference.";
+            } else if (/\b(chatgpt|gpt|openai)\b/.test(n)) {
+              draft.text =
+                lang === "fi"
+                  ? "En ole ChatGPT. Olen Cortex: JSON ja JavaScript tässä sivussa."
+                  : "I'm not ChatGPT. I'm Cortex: JSON plus JavaScript in this page.";
+            } else if (/\b(online|offline|local|internet)\b/.test(n)) {
+              draft.text =
+                lang === "fi"
+                  ? "Päättely on paikallista. En soita mallirajapintaan."
+                  : "Inference is local. I don't call a model API — even if the browser can reach the internet.";
+            } else if (/\bwhere are you\b/.test(n)) {
+              draft.text =
+                lang === "fi"
+                  ? "Tässä selainvälilehdessä, tiedostossa brain.json plus engine.js."
+                  : "In this browser tab — brain.json plus engine.js.";
+            } else if (/\bwho made you\b/.test(n)) {
+              draft.text =
+                lang === "fi"
+                  ? "Tämän reposetetin lähetti sen tekijä. Vastaukset kootaan täällä, ei pilvessä."
+                  : "Whoever shipped this repo. Replies are assembled here, not in a datacenter.";
+            } else {
+              draft.text = pick(loc(brain.responses.origin, lang));
+            }
+            break;
+          }
+          case "ack": {
+            draft.text =
+              lang === "fi"
+                ? "Selvä. Voit pyytää kissaa, faktaa tai laskua."
+                : "Got it. Ask for a cat, a fact, or some math whenever you like.";
+            break;
+          }
+          case "deny": {
+            draft.text =
+              lang === "fi" ? "Selvä, ei jatketa sitä. Mitä seuraavaksi?" : "Okay, dropping that. What instead — cat, fact, or math?";
+            break;
+          }
+          case "repeat": {
+            draft.text = state.lastReply
+              ? state.lastReply
+              : lang === "fi"
+                ? "Ei ole vielä mitään toistettavaa."
+                : "I haven't said anything to repeat yet.";
+            break;
+          }
+          case "play": {
+            if (/\b(dice|die|noppa|roll)\b/.test(perceived.normalized)) {
+              const n = 1 + Math.floor(Math.random() * 6);
+              draft.text = lang === "fi" ? `Noppa: ${n}.` : `You rolled a ${n}.`;
+            } else {
+              const side = Math.random() < 0.5 ? "heads" : "tails";
+              draft.text =
+                lang === "fi"
+                  ? `Kolikko: ${side === "heads" ? "kruuna" : "klaava"}.`
+                  : `Coin flip: ${side}.`;
+            }
+            break;
+          }
+          case "transform": {
+            if (entities.countTo) {
+              const n = entities.countTo;
+              const seq = [];
+              for (let i = 1; i <= n; i++) seq.push(String(i));
+              draft.text = seq.join(", ") + ".";
+            } else if (entities.reverse) {
+              draft.text = entities.reverse.split("").reverse().join("");
+            } else if (entities.spell) {
+              draft.text = entities.spell.toUpperCase().split("").join("-");
+            } else {
+              draft.text =
+                lang === "fi"
+                  ? "Kokeile: count to 5, reverse hello, spell cortex."
+                  : "Try: count to 5, reverse hello, or spell cortex.";
+            }
+            break;
+          }
+          case "convert": {
+            if (entities.conversion) {
+              draft.text = `${entities.conversion.from} → ${entities.conversion.pretty} ${entities.conversion.unit}`;
+            } else {
+              draft.text =
+                lang === "fi"
+                  ? "Kokeile: 10 km to miles, 100 f to c, 5 kg to lb."
+                  : "Try: 10 km to miles, 100 F to C, or 5 kg to lb.";
+            }
+            break;
+          }
+          case "bot_opinion": {
+            const fav = store.favoriteAnimal
+              ? lang === "fi"
+                ? ` Sinun suosikkisi on ${animalLabel(store.favoriteAnimal, "fi", brain)}.`
+                : ` Your favorite on file is the ${animalLabel(store.favoriteAnimal, "en", brain)}.`
+              : "";
+            draft.text =
+              lang === "fi"
+                ? "Tykkään molemmista — JSON-aivoissa kissa ja koira ovat tasavertaisia." + fav
+                : "I like both: in this JSON brain, cat and dog are equal citizens." + fav;
+            break;
+          }
+          case "attr_qa": {
+            const subj = entities.animal === "both" ? "cat" : entities.animal || state.topic;
+            const n = graphLookup(brain, subj);
+            const key = entities.attr;
+            if (n && key && n.attrs && n.attrs[key] != null) {
+              const val = loc(n.attrs[key], lang);
+              draft.text =
+                lang === "fi"
+                  ? `${loc(n.label, lang)} — ${key}: ${val}.`
+                  : `${loc(n.label, lang)} — ${key}: ${val}.`;
+              state.topic = n.id;
+            } else if (n) {
+              draft.text = loc(n.summary, lang);
+              state.topic = n.id;
+            } else {
+              draft.text = pick(loc(brain.responses.fallback, lang));
+            }
+            break;
+          }
+          case "emotion": {
+            const kind = entities.emotion;
+            draft.text = pick(loc((brain.responses.emotion && brain.responses.emotion[kind]) || brain.responses.emotion && brain.responses.emotion.sad, lang) || [
+              "That's heavy. I'm only a local script, but I'm here in this tab."
+            ]);
             break;
           }
           case "yes_no": {
@@ -768,6 +1229,7 @@
       state.lang = lang;
       store.turns.push({ role: "user", text: perceived.raw, at: Date.now() });
       store.turns.push({ role: "assistant", text: draft.text, intent: top.id, at: Date.now() });
+      if (top.id !== "repeat") state.lastReply = draft.text;
       saveStore(store);
 
       return {
@@ -830,7 +1292,9 @@
     cosine,
     charNgrams,
     levenshtein,
-    applyMath
+    applyMath,
+    parseMath,
+    parseConversion
   };
 
   root.Cortex = Cortex;

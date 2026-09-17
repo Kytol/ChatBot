@@ -75,6 +75,61 @@ assert(/Ten phases|no backend/i.test(r.text), "explains local pipeline");
 r = s.reply("cat vs dog");
 assert(r.intent === "compare", "compare, got " + r.intent);
 
+function check(input, intent, re, msg) {
+  const sess = session();
+  const out = sess.reply(input);
+  assert(out.intent === intent, (msg || input) + " intent " + out.intent + " want " + intent);
+  if (re) assert(re.test(out.text + (out.html || "")), (msg || input) + " text: " + out.text);
+}
+
+check("how are you", "howdy", /on-device|phases|laitteella|vaihetta/i);
+check("good morning", "daypart", /morning|huomenta/i);
+check("are you chatgpt", "origin", /not chatgpt/i);
+check("are you there", "origin", /here|täällä/i);
+check("what is the weather", "weather", /weather|offline|sää/i);
+check("show me a horse", "show_media", /only draw|vain/i);
+check("cta", "show_media", /aria-label="cat"/);
+check("dgo", "show_media", /aria-label="dog"/);
+check("call me Sam", "remember_name", /Sam/);
+check("i am sad", "emotion", /sad|ikävää/i);
+check("what is two plus two", "math", /\b4\b/);
+check("12 times 7", "math", /84/);
+check("2 + 2 + 2", "math", /\b6\b/);
+check("10% of 50", "math", /\b5\b/);
+check("square root of 9", "math", /\b3\b/);
+check("divide 10 by 0", "math", /zero/i);
+check("calculate fifteen minus 3", "math", /\b12\b/);
+check("do you like cats", "bot_opinion", /both/i);
+check("how many legs does a dog have", "attr_qa", /dog/i);
+check("what is a mammal", "animal_fact", /milk|warm/i);
+check("what is json", "animal_fact", /notation|JSON/i);
+check("tell me about foxes", "animal_fact", /fox|vulpes/i);
+check("see ya", "farewell", /see you|bye|offline|nähdään|memory/i);
+check("count to 5", "transform", /1, 2, 3, 4, 5/);
+check("reverse hello", "transform", /^olleh$/);
+check("spell cortex", "transform", /C-O-R-T-E-X/);
+check("convert 10 km to miles", "convert", /10 km to miles/);
+check("100 f to c", "convert", /37/);
+check("", "empty", /type something|kirjoita/i);
+
+{
+  const sess = session();
+  sess.reply("cat");
+  const out = sess.reply("repeat that");
+  assert(out.intent === "repeat", "repeat intent " + out.intent);
+  assert(/cat|kissa|toes|purr|clowder/i.test(out.text), "repeat last: " + out.text);
+}
+
+{
+  const sess = session();
+  sess.reply("show me a picture");
+  const out = sess.reply("no");
+  assert(out.intent === "deny", "deny after clarify, got " + out.intent);
+}
+
+assert(Cortex.parseMath("two plus two").pretty === "4", "parseMath words");
+assert(Cortex.parseMath("2+2+2").pretty === "6", "parseMath chain");
+
 const s2 = session();
 r = s2.reply("show me a picture");
 assert(s2.getState().awaiting === "animal", "clarifies missing animal slot");
