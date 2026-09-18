@@ -1,5 +1,5 @@
 /* Cortex service worker — cache the static shell. No AI traffic. */
-const CACHE = "cortex-shell-v1";
+const CACHE = "cortex-shell-v2";
 const PRECACHE = [
   "./",
   "./index.html",
