@@ -1544,6 +1544,11 @@
               const fact = pick((n.facts && (n.facts[lang] || n.facts.en)) || []) || loc(n.summary, lang);
               draft.text = loc(n.summary, lang) + (fact && fact !== loc(n.summary, lang) ? " " + fact : "");
               state.topic = n.id;
+            } else if ((loop.examples[top.id] || []).length) {
+              draft.text =
+                lang === "fi"
+                  ? "Paikallinen esimerkki vei aikeeseen " + top.id + ". Kysy kissasta, ketusta tai JSONista — tai lisää solmu Brain-välilehdellä."
+                  : "Local example matched intent " + top.id + ". Ask about a graph topic (cat, fox, json) or add a node in the Brain tab.";
             } else {
               draft.text = pick(loc(brain.responses.fallback, lang));
             }
@@ -2027,7 +2032,12 @@
           default: {
             const factHit = hits.find((h) => h.kind !== "intent" && h.score > 0.28);
             if (factHit) draft.text = factHit.text;
-            else draft.text = pick(loc(brain.responses.fallback, lang));
+            else if ((loop.examples[top.id] || []).length) {
+              draft.text =
+                lang === "fi"
+                  ? "Paikallinen silmukka luokitteli tämän aikeeksi " + top.id + "."
+                  : "The local loop classifies this as " + top.id + " now.";
+            } else draft.text = pick(loc(brain.responses.fallback, lang));
           }
         }
       }

@@ -231,6 +231,7 @@ assert(Cortex.applyMath({ left: "2", op: "+", right: "3" }).pretty === "5", "mat
   assert(sess.getLoop().corrections >= 1, "correction counted");
   out = sess.reply("zzzz not a real utterance 12345");
   assert(out.intent === "animal_fact", "labeled phrase now animal_fact, got " + out.intent);
+  assert(/local example matched|Paikallinen esimerkki/i.test(out.text), "labeled reply acknowledges local example: " + out.text);
 }
 
 {
