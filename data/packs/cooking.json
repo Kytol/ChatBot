@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "id": "cooking",
+    "name": "Cooking",
+    "version": "1.0",
+    "tagline": {
+      "en": "Kitchen skill pack. Still local JSON.",
+      "fi": "Keittiöpaketti. Yhä paikallinen JSON."
+    }
+  },
+  "intents": [
+    {
+      "id": "boil_eggs",
+      "priority": 14,
+      "patterns": ["\\b(boil (an? )?eggs?|how do i boil eggs|how to boil eggs)\\b"],
+      "keywords": { "boil": 0.7, "egg": 0.7, "eggs": 0.7 },
+      "examples": ["how do I boil eggs", "boil eggs", "how to boil an egg"],
+      "handler": "template"
+    }
+  ],
+  "responses": {
+    "boil_eggs": {
+      "en": ["Soft-set: 6–7 minutes at a simmer. Hard: 9–12 minutes. Ice bath after. This answer comes from the cooking skill pack — still no cloud."],
+      "fi": ["Pehmeä: 6–7 min kiehuvassa. Kova: 9–12 min. Jäävesi jälkeen. Keittiöpaketti, ei pilveä."]
+    }
+  },
+  "graph": {
+    "nodes": [
+      {
+        "id": "egg",
+        "type": "food",
+        "label": { "en": "egg", "fi": "kananmuna" },
+        "summary": {
+          "en": "A cooking staple. This node is added when the cooking skill pack is enabled.",
+          "fi": "Keittiön perusaine. Tämä solmu tulee keittiöpaketista."
+        },
+        "facts": {
+          "en": ["A large hen egg is about 50 grams.", "Start in already-simmering water for more even whites."],
+          "fi": ["Iso kananmuna on noin 50 g."]
+        }
+      }
+    ],
+    "edges": []
+  },
+  "quiz": [
+    {
+      "id": "egg_hard",
+      "topic": "egg",
+      "q": {
+        "en": "About how many minutes for a hard-boiled egg at a simmer? (9–12 is fine)",
+        "fi": "Montako minuuttia kovaan munaan? (9–12 käy)"
+      },
+      "accept": ["9", "10", "11", "12", "nine", "ten", "eleven", "twelve"],
+      "explain": {
+        "en": "Hard-boiled is about 9–12 minutes, then an ice bath.",
+        "fi": "Kova noin 9–12 minuuttia, sitten jäävesi."
+      }
+    }
+  ]
+}
