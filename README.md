@@ -16,7 +16,7 @@ Open `http://localhost:8080/`. Fetching `data/brain.json` needs HTTP; inference 
 node tests/engine.test.js
 ```
 
-Docs: [OVERVIEW.md](OVERVIEW.md) (architecture) · [ROADMAP.md](ROADMAP.md) (ten next-build ideas).
+Docs: [OVERVIEW.md](OVERVIEW.md) (architecture) · [ROADMAP.md](ROADMAP.md) (ten product ideas, all implemented).
 
 The original one-file bot remains at [`chatBot.html`](chatBot.html).
 
@@ -27,7 +27,7 @@ The original one-file bot remains at [`chatBot.html`](chatBot.html).
 | 1 | Perception | Normalize, tokenize, language detect (EN/FI), n-grams, sentiment |
 | 2 | Intent | Score JSON intents with regex, weighted keywords, example overlap |
 | 3 | Entities | Gazetteers (cat/dog/both, languages) plus names and arithmetic |
-| 4 | Semantics | Character 3-gram vectors and cosine similarity — no remote embeddings |
+| 4 | Semantics | Character 3-grams blended with hashed bag-of-words + IDF — no remote embeddings |
 | 5 | Dialogue | Topic, pronouns, missing-slot questions, multi-turn follow-ups |
 | 6 | Knowledge | JSON graph: nodes, edges, facts, yes/no relation checks |
 | 7 | Reasoning | Rules, templates, local math, comparisons, media sprites |
@@ -57,4 +57,15 @@ Then `ping` is answered from local memory, still with no cloud call.
 - `my name is Aino` · `call me Sam` · `when I say ping reply pong`
 - `how are you` · `good morning` · `what's the weather` (honest offline)
 - `quiz me` / `quiz me about cats` — local graph quiz (`skip`, `stop quiz`)
+- `add a pet` — species → age → name, stored in this browser
+- `summarize our chat` — extractive recap of recent turns
+- `how do I boil eggs?` — after enabling the Cooking pack on the Brain tab
+- `how are you learning?` — local rehearsal stats, adapter rates, preferred drill (Loop tab)
+- `that's wrong` then `meant:animal_fact` — correct the last turn in this browser
 - `how do you work?` — the pipeline in plain language
+
+Fallback replies offer **Save as test**. That downloads `failures.json`. Fill `"want"` with an intent id and either drop the file in `data/failures.json` (the runner skips empty `want`) or paste:
+
+```js
+check("your leftover phrase", "animal_fact", /expected snippet/);
+```

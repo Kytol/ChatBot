@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Cortex — on-device JSON intelligence</title>
     <meta name="description" content="Ten-phase conversational engine that runs entirely in HTML, CSS, and JS from a JSON brain. No cloud inference.">
+    <meta name="theme-color" content="#161410">
+    <link rel="manifest" href="manifest.webmanifest">
     <link rel="stylesheet" href="css/app.css">
   </head>
   <body>
@@ -17,6 +19,7 @@
         <div class="badges">
           <span class="badge live">offline inference</span>
           <span class="badge">no model API</span>
+          <span class="badge" id="cache-badge" hidden>cached shell</span>
         </div>
         <nav>
           <a href="OVERVIEW.md">Overview</a>
@@ -36,9 +39,13 @@
           <div class="composer">
             <div id="chips" class="chips"></div>
             <div class="row">
+              <button type="button" id="mic" class="icon-btn" hidden title="Voice in (browser speech API — OS may send audio to a vendor recognizer; Cortex does not)">Mic</button>
               <input id="input" type="text" autofocus autocomplete="off" placeholder="Are you a cat or dog person? Oletko kissa- vai koiraihminen?">
               <button class="primary" id="say" type="button">Say</button>
             </div>
+            <label class="tts-toggle" id="tts-wrap" hidden>
+              <input type="checkbox" id="tts"> Speak replies (device TTS, skip drawings)
+            </label>
           </div>
         </main>
 
@@ -46,7 +53,9 @@
           <div class="tabs">
             <button type="button" class="active" data-tab="trace">Trace</button>
             <button type="button" data-tab="memory">Memory</button>
+            <button type="button" data-tab="graph">Graph</button>
             <button type="button" data-tab="brain">Brain</button>
+            <button type="button" data-tab="loop">Loop</button>
             <button type="button" data-tab="roadmap">Phases</button>
           </div>
           <div class="panel-body" data-pane="trace">
@@ -60,8 +69,14 @@
             </div>
             <div id="mem-view"></div>
           </div>
+          <div class="panel-body hidden" data-pane="graph">
+            <p class="hint">JSON nodes and is_a edges. Click a circle for summary. Last reply highlights the nodes it used.</p>
+            <div id="graph-svg"></div>
+            <p id="graph-detail" class="hint"></p>
+          </div>
           <div class="panel-body hidden" data-pane="brain">
             <p class="hint">The entire skill set is this JSON document. Edit and apply — the engine recompiles in-page.</p>
+            <div id="pack-list" class="pack-list"></div>
             <div class="actions">
               <button id="apply-brain" type="button">Apply JSON</button>
               <button id="download-brain" type="button">Export</button>
@@ -70,6 +85,14 @@
             <p id="brain-error" class="err"></p>
             <textarea id="brain-json" class="brain" spellcheck="false" aria-label="Brain JSON"></textarea>
           </div>
+          <div class="panel-body hidden" data-pane="loop">
+            <p class="hint">On-device loop: reward from thanks / “that’s wrong” / meant: labels, then rehearse paraphrases and raise the adapters that actually helped. Nothing leaves this browser.</p>
+            <div class="actions">
+              <button id="loop-practice" type="button">Practice now</button>
+              <button id="loop-reset" type="button">Reset loop</button>
+            </div>
+            <div id="loop-view"></div>
+          </div>
           <div class="panel-body hidden" data-pane="roadmap">
             <p class="hint">Implemented end-to-end in HTML, CSS, and JavaScript. The cloud is not in the request path.</p>
             <div id="roadmap-list"></div>
@@ -77,6 +100,20 @@
         </aside>
       </div>
     </div>
+
+    <div id="diff-modal" class="modal hidden" role="dialog" aria-labelledby="diff-title">
+      <div class="card">
+        <h3 id="diff-title">Brain import diff</h3>
+        <p id="diff-summary" class="hint"></p>
+        <ul id="diff-list"></ul>
+        <div class="actions">
+          <button id="diff-apply" type="button" class="primary">Apply all</button>
+          <button id="diff-intents" type="button">Apply intents only</button>
+          <button id="diff-cancel" type="button">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <script src="js/engine.js"></script>
     <script src="js/app.js"></script>
   </body>

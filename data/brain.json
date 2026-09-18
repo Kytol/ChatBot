@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "Cortex",
-    "version": "10.1",
+    "version": "12.0",
     "tagline": {
       "en": "On-device conversational intelligence. No cloud inference.",
       "fi": "Laitteella toimiva keskusteluäly. Ei pilvipäättelyä."
@@ -36,7 +36,7 @@
       "phase": 4,
       "id": "semantics",
       "title": "Semantics",
-      "summary": "Local character n-gram vectors and cosine similarity. No remote embeddings."
+      "summary": "Local character n-gram vectors blended with hashed bag-of-words and IDF. No remote embeddings."
     },
     {
       "phase": 5,
@@ -447,6 +447,38 @@
       "handler": "quiz"
     },
     {
+      "id": "recap",
+      "priority": 13,
+      "patterns": ["\\b(summarize( our chat)?|recap|what did we talk about|tiivistä|yhteenveto)\\b"],
+      "keywords": { "summarize": 0.8, "recap": 0.8, "talked": 0.4 },
+      "examples": ["summarize our chat", "recap", "what did we talk about"],
+      "handler": "recap"
+    },
+    {
+      "id": "add_pet",
+      "priority": 14,
+      "patterns": ["\\b(add (a |my )?pet|new pet|pet profile|lisää lemmikki)\\b"],
+      "keywords": { "pet": 0.6, "add": 0.3, "lemmikki": 0.8 },
+      "examples": ["add a pet", "new pet", "pet profile", "lisää lemmikki"],
+      "handler": "add_pet"
+    },
+    {
+      "id": "learn_status",
+      "priority": 14,
+      "patterns": ["\\b(how are you learning|learning loop|rehearsal accuracy|are you getting better|show (the )?loop)\\b"],
+      "keywords": { "learning": 0.8, "rehearsal": 0.7, "loop": 0.5 },
+      "examples": ["how are you learning", "learning loop", "are you getting better"],
+      "handler": "learn_status"
+    },
+    {
+      "id": "critique",
+      "priority": 13,
+      "patterns": ["\\b(that('?s| is) wrong|not what i meant|bad answer|you got that wrong)\\b"],
+      "keywords": { "wrong": 0.8, "meant": 0.4 },
+      "examples": ["that's wrong", "not what I meant", "bad answer"],
+      "handler": "critique"
+    },
+    {
       "id": "fallback",
       "priority": 0,
       "patterns": [".*"],
@@ -464,6 +496,29 @@
         "ask": {
           "en": "Cat, dog, or both? I can draw either locally — no image CDN required.",
           "fi": "Kissa, koira vai molemmat? Piirrän ne täällä, ilman kuvaverkkoa."
+        }
+      },
+      {
+        "id": "add_pet",
+        "intent": "add_pet",
+        "required": ["species", "age", "petName"],
+        "ask": {
+          "species": {
+            "en": "What species?",
+            "fi": "Mikä laji?"
+          },
+          "age": {
+            "en": "How old (years)?",
+            "fi": "Ikä vuosina?"
+          },
+          "petName": {
+            "en": "What is your pet's name?",
+            "fi": "Mikä lemmikin nimi on?"
+          }
+        },
+        "onComplete": {
+          "en": "Saved {{petName}}, {{species}}, {{age}}.",
+          "fi": "Tallennettu {{petName}}, {{species}}, {{age}}."
         }
       }
     ]
@@ -716,7 +771,7 @@
       "fi": ["Olen Cortex, laitteella toimiva keskustelumoottori. Aikeet, entiteetit, faktat ja persoona ovat tiedostossa brain.json. JavaScript ajaa 10 vaihetta. Mallirajapintaa ei ole."]
     },
     "capabilities": {
-      "en": ["I can greet you in English or Finnish, draw cats and dogs, quiz you from the knowledge graph, talk about horses/foxes/birds without drawing them, pull facts, do arithmetic, convert units, remember your name, learn a when-I-say rule, flip a coin, and show a live trace of all ten phases. Try: quiz me · cat · two plus two · how do you work?"],
+      "en": ["I can greet you in English or Finnish, draw cats and dogs, quiz you from the knowledge graph, recap this chat, save a pet profile, load a cooking skill pack, talk about horses/foxes/birds without drawing them, pull facts, do arithmetic, convert units, remember your name, learn a when-I-say rule, flip a coin, and show a live trace of all ten phases. Try: quiz me · add a pet · summarize our chat · cat · two plus two · how do you work?"],
       "fi": ["Osaan tervehtiä suomeksi tai englanniksi, piirtää kissoja ja koiria, hakea faktoja tietoverkosta, laskea, muistaa nimesi, oppia kun-sanon-säännön, kertoa kellon ja näyttää kymmenen vaiheen jäljen. Kokeile: kissa · kerro koirista · nimeni on Aino · laske 12*7"]
     },
     "fallback": {
@@ -771,7 +826,7 @@
     }
   },
   "suggestions": {
-      "en": ["cat", "dog", "quiz me", "How do you work?", "two plus two", "10 km to miles", "flip a coin"],
+      "en": ["cat", "dog", "quiz me", "add a pet", "summarize our chat", "how are you learning", "How do you work?"],
     "fi": ["kissa", "koira", "molemmat", "Miten toimit?", "Kerro kissoista", "Laske 12 * 7", "Nimeni on Aino"]
   }
 }

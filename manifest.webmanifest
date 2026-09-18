@@ -1,0 +1,11 @@
+{
+  "name": "Cortex",
+  "short_name": "Cortex",
+  "description": "On-device JSON conversational engine. No cloud inference.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#161410",
+  "theme_color": "#161410",
+  "lang": "en"
+}

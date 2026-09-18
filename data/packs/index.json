@@ -1,0 +1,8 @@
+[
+  {
+    "id": "cooking",
+    "file": "cooking.json",
+    "name": "Cooking",
+    "blurb": "Boil eggs and an egg graph node. Static JSON, not a model API."
+  }
+]

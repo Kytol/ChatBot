@@ -158,6 +158,130 @@ assert(/aria-label="dog"/.test(r.html), "dog sprite after clarify");
 assert(Cortex.cosine(Cortex.charNgrams("cat picture", 3), Cortex.charNgrams("cat pic", 3)) > 0.3, "n-gram cosine works");
 assert(Cortex.applyMath({ left: "2", op: "+", right: "3" }).pretty === "5", "math helper");
 
+{
+  const cooking = JSON.parse(fs.readFileSync(path.join(__dirname, "../data/packs/cooking.json"), "utf8"));
+  const merged = Cortex.mergeBrains(brain, cooking);
+  const d = Cortex.diffBrains(brain, merged);
+  assert(d.addedIntents.indexOf("boil_eggs") >= 0, "diff lists boil_eggs intent: " + d.summary);
+  assert(d.addedNodes.indexOf("egg") >= 0, "diff lists egg node: " + d.summary);
+
+  let out = session().reply("how do I boil eggs?");
+  assert(out.intent === "fallback", "without pack, boil eggs falls back, got " + out.intent);
+
+  const packed = Cortex.createSession(brain);
+  packed.resetMemory();
+  packed.mergePack(cooking);
+  out = packed.reply("how do I boil eggs?");
+  assert(out.intent === "boil_eggs", "with cooking pack, boil eggs intent got " + out.intent);
+  assert(/simmer|Hard|minutes/i.test(out.text), "boil eggs copy from pack: " + out.text);
+}
+
+{
+  const compiled = Cortex.compileBrain(brain);
+  const perceived = Cortex.perceive("nocturnal bushy tail", compiled);
+  const hits = Cortex.semanticSearch(perceived, compiled, "en");
+  const fox = hits.find((h) => h.id === "fox");
+  assert(fox, "nocturnal bushy tail retrieves a fox doc: " + (hits[0] && hits[0].id));
+  assert(hits[0].id === "fox", "top hit is fox, got " + hits[0].id + " " + hits[0].kind);
+}
+
+{
+  const sess = session();
+  sess.reply("cat");
+  sess.reply("what is 12 * 7");
+  sess.reply("quiz me");
+  sess.reply("stop quiz");
+  const out = sess.reply("summarize our chat");
+  assert(out.intent === "recap", "recap intent got " + out.intent);
+  assert(/cat/i.test(out.text), "recap mentions cat: " + out.text);
+  assert(/12|84/.test(out.text), "recap mentions math: " + out.text);
+  assert(/quiz/i.test(out.text), "recap mentions quiz: " + out.text);
+}
+
+{
+  const sess = session();
+  let out = sess.reply("add a pet");
+  assert(out.intent === "add_pet", "add_pet start got " + out.intent);
+  assert(/species/i.test(out.text), "asks species: " + out.text);
+  out = sess.reply("cat");
+  assert(/old|age|years/i.test(out.text), "asks age: " + out.text);
+  out = sess.reply("3");
+  assert(/name/i.test(out.text), "asks name: " + out.text);
+  out = sess.reply("Miso");
+  assert(/Saved Miso, cat, 3/i.test(out.text), "saved profile: " + out.text);
+}
+
+{
+  const out = session().reply("is a cat a mammal");
+  assert(out.graphFocus && out.graphFocus.edge && out.graphFocus.edge.from === "cat", "graphFocus cat→mammal");
+}
+
+{
+  const out = session().reply("zzzz not a real utterance 12345");
+  assert(out.intent === "fallback", "nonsense is fallback, got " + out.intent);
+  assert((out.suggestions || []).indexOf("Save as test") >= 0, "fallback offers Save as test");
+}
+
+{
+  const sess = session();
+  let out = sess.reply("zzzz not a real utterance 12345");
+  assert(out.intent === "fallback", "loop seed fallback");
+  out = sess.reply("meant:animal_fact");
+  assert(out.intent === "learn_status", "label uses learn_status, got " + out.intent);
+  assert(sess.getLoop().corrections >= 1, "correction counted");
+  out = sess.reply("zzzz not a real utterance 12345");
+  assert(out.intent === "animal_fact", "labeled phrase now animal_fact, got " + out.intent);
+  assert(/local example matched|Paikallinen esimerkki/i.test(out.text), "labeled reply acknowledges local example: " + out.text);
+}
+
+{
+  const sess = session();
+  sess.reply("cat");
+  const before = sess.getLoop().lr.example;
+  const out = sess.reply("thanks");
+  assert(out.intent === "thanks", "thanks intent");
+  assert(sess.getLoop().rewardsPos >= 1, "thanks rewards previous turn");
+  assert(sess.getLoop().lr.example >= before, "example LR did not shrink after success");
+}
+
+{
+  const sess = session();
+  sess.reply("tell me about foxes");
+  sess.reply("thanks");
+  const report = sess.rehearse(12);
+  assert(report.ran >= 1, "rehearse ran drills: " + report.ran);
+  assert(sess.getLoop().rehearsals >= 1, "rehearsal counter");
+  const snap = sess.getLoop();
+  assert(snap.mut && Object.keys(snap.mut).some((k) => snap.mut[k].try > 0), "mutation policy recorded tries");
+  assert(["synonym", "drop", "transpose", "repeat"].indexOf(snap.preferredMut) >= 0, "preferredMut " + snap.preferredMut);
+  assert(snap.batch >= 1 && snap.batch <= 4, "adaptive batch " + snap.batch);
+  assert((report.reports || []).some((r) => r.mode), "each drill names a mutation mode");
+}
+
+check("how are you learning", "learn_status", /local learning loop|rehearsal accuracy/i);
+check("that's wrong", "critique", /downweight|meant/i);
+
+{
+  const out = session().reply("zzzz not a real utterance 12345");
+  const meant = (out.suggestions || []).filter((s) => String(s).indexOf("meant:") === 0);
+  assert(meant.length >= 1, "fallback still offers meant chips");
+  meant.forEach((s) => {
+    assert(
+      !/^meant:(critique|learn_status|thanks|yes_no|fallback|empty|howdy|origin)$/.test(s),
+      "meant chip should be a content intent, got " + s
+    );
+  });
+}
+
+{
+  const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, "../data/failures.json"), "utf8"));
+  fixtures.forEach((row, i) => {
+    if (!row || !row.want) return;
+    const out = session().reply(row.input);
+    assert(out.intent === row.want, "failures.json[" + i + "] " + row.input + " got " + out.intent + " want " + row.want);
+  });
+}
+
 if (failed) {
   console.error("\n" + failed + " failed");
   process.exit(1);
