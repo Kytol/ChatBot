@@ -12,7 +12,12 @@ The original one-file bot (`chatBot.html`) already stored regex → reply pairs 
 - Arithmetic, unit conversion, coin/dice, reverse/spell
 - Browser memory (`localStorage`): name, favorites, taught “when I say… reply…” rules
 - **Graph quiz** — `quiz me` / `quiz me about cats` asks questions generated from the graph (and extra JSON items). Score stays on this device
-- Brain tab: edit, apply, export, import the JSON without a server
+- **Skill packs** — enable `data/packs/cooking.json` in the Brain tab without replacing the core brain
+- **Graph pane** — SVG of nodes and `is_a` edges; last reply highlights what was used
+- **Recap** — `summarize our chat` extracts local turns (no cloud summary)
+- **Pet profile flow** — `add a pet` fills species / age / name into `localStorage`
+- **PWA** — `sw.js` precaches the shell so a second visit can run offline
+- Brain tab: edit, apply, **import with a diff**, export; fallback chip **Save as test** downloads `failures.json`
 
 ## Run
 
@@ -32,11 +37,14 @@ node tests/engine.test.js
 | --- | --- |
 | `index.html` | Shell: pipeline rail, chat, inspector |
 | `css/app.css` | Layout and theme |
-| `js/engine.js` | Ten-phase NLU + quiz + math |
-| `js/app.js` | DOM: messages, chips, Brain editor |
+| `js/engine.js` | Ten-phase NLU + quiz + packs + recap + pet flow |
+| `js/app.js` | DOM: messages, Graph, packs, voice, import diff |
 | `data/brain.json` | Intents, lexicon, graph, copy, quiz extras |
+| `data/packs/` | Optional skill packs (static JSON) |
+| `data/failures.json` | Optional authored fallback fixtures |
+| `manifest.webmanifest` / `sw.js` | Installable shell cache |
 | `chatBot.html` | Original regex JSON bot |
-| `ROADMAP.md` | Ten implementation ideas (next builds) |
+| `ROADMAP.md` | Ten product ideas (all implemented) |
 | `tests/engine.test.js` | Node checks, no browser required |
 
 ```mermaid
@@ -63,8 +71,8 @@ flowchart LR
 1. **Perception** — trim, contractions (`whats` → `what is`), tokens, EN/FI, n-grams, sentiment  
 2. **Intent** — regex + keyword weights + example cosine  
 3. **Entities** — gazetteers, names, math, conversions, graph node labels  
-4. **Semantics** — character 3-gram vectors, local cosine (no remote embeddings)  
-5. **Dialogue** — topic, missing slots, quiz turn-taking  
+4. **Semantics** — character 3-gram vectors blended with hashed bag-of-words + IDF  
+5. **Dialogue** — topic, missing slots, quiz turn-taking, pet profile flow  
 6. **Knowledge** — nodes, `is_a` edges, attributes (legs, toes)  
 7. **Reasoning** — templates, math, conversions, quiz grading, sprites  
 8. **Memory** — `localStorage` plus taught rules and quiz best score  
@@ -89,3 +97,8 @@ Say `quiz me` or `quiz me about cats`. Cortex builds up to five questions from:
 - numeric `attrs.legs` (how many legs)
 
 Answers are graded locally (exact tokens, then n-gram overlap). `skip` / `stop quiz` work mid-round. Last and best scores appear on the Memory tab.
+
+## Other shipped ideas
+
+See [ROADMAP.md](ROADMAP.md). Skill packs, the Graph inspector, recap, PWA cache, pet dialogue, hashed retrieval, device voice, import diffs, and “Save as test” all run in this page. Speech recognition, when the browser exposes it, may still use a vendor OS service — Cortex itself never posts audio or text to a model API.
+

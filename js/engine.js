@@ -263,8 +263,188 @@
     return dot / (Math.sqrt(na) * Math.sqrt(nb));
   }
 
+  function hashToken(t) {
+    let h = 2166136261;
+    const s = String(t);
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0) % 256;
+  }
+
+  function hashVec(text) {
+    const tokens = String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    const vec = Object.create(null);
+    tokens.forEach((t) => {
+      const k = "h" + hashToken(t);
+      vec[k] = (vec[k] || 0) + 1;
+    });
+    return vec;
+  }
+
+  function blendVec(ngram, hashed, idf, N) {
+    const out = Object.create(null);
+    Object.keys(ngram || {}).forEach((k) => {
+      out["c:" + k] = ngram[k];
+    });
+    const n = N || 1;
+    Object.keys(hashed || {}).forEach((k) => {
+      const df = (idf && idf[k]) || 1;
+      out[k] = hashed[k] * Math.log(1 + n / df);
+    });
+    return out;
+  }
+
+  function mergeBrains(base, pack) {
+    const out = clone(base || {});
+    if (!pack) return out;
+    out.intents = (out.intents || []).slice();
+    const fallback = out.intents.find((i) => i.id === "fallback");
+    const withoutFb = out.intents.filter((i) => i.id !== "fallback");
+    const have = new Set(withoutFb.map((i) => i.id));
+    (pack.intents || []).forEach((intent) => {
+      if (!have.has(intent.id)) {
+        withoutFb.push(clone(intent));
+        have.add(intent.id);
+      }
+    });
+    if (fallback) withoutFb.push(fallback);
+    out.intents = withoutFb;
+    out.responses = Object.assign({}, out.responses || {}, clone(pack.responses || {}));
+    out.graph = out.graph || { nodes: [], edges: [] };
+    out.graph.nodes = (out.graph.nodes || []).slice();
+    out.graph.edges = (out.graph.edges || []).slice();
+    const nodeIds = new Set(out.graph.nodes.map((n) => n.id));
+    ((pack.graph && pack.graph.nodes) || []).forEach((n) => {
+      if (!nodeIds.has(n.id)) {
+        out.graph.nodes.push(clone(n));
+        nodeIds.add(n.id);
+      }
+    });
+    const edgeKey = (e) => e.from + "|" + e.rel + "|" + e.to;
+    const edges = new Set((out.graph.edges || []).map(edgeKey));
+    ((pack.graph && pack.graph.edges) || []).forEach((e) => {
+      const k = edgeKey(e);
+      if (!edges.has(k)) {
+        out.graph.edges.push(clone(e));
+        edges.add(k);
+      }
+    });
+    out.quiz = (out.quiz || []).concat(clone(pack.quiz || []));
+    if (pack.dialogue && pack.dialogue.flows) {
+      out.dialogue = out.dialogue || { flows: [] };
+      out.dialogue.flows = (out.dialogue.flows || []).concat(clone(pack.dialogue.flows));
+    }
+    if (pack.lexicon && pack.lexicon.synonyms) {
+      out.lexicon = out.lexicon || {};
+      out.lexicon.synonyms = Object.assign({}, out.lexicon.synonyms || {}, pack.lexicon.synonyms);
+    }
+    out._packs = (out._packs || []).concat([(pack.meta && pack.meta.id) || "pack"]);
+    return out;
+  }
+
+  function diffBrains(current, next) {
+    const curI = new Set(((current && current.intents) || []).map((i) => i.id));
+    const nextI = new Set(((next && next.intents) || []).map((i) => i.id));
+    const curN = new Set((((current && current.graph) || {}).nodes || []).map((n) => n.id));
+    const nextN = new Set((((next && next.graph) || {}).nodes || []).map((n) => n.id));
+    const curQ = new Set(((current && current.quiz) || []).map((q) => q.id));
+    const nextQ = new Set(((next && next.quiz) || []).map((q) => q.id));
+    const addedIntents = [...nextI].filter((id) => !curI.has(id));
+    const removedIntents = [...curI].filter((id) => !nextI.has(id));
+    const addedNodes = [...nextN].filter((id) => !curN.has(id));
+    const removedNodes = [...curN].filter((id) => !nextN.has(id));
+    const addedQuiz = [...nextQ].filter((id) => !curQ.has(id));
+    const removedQuiz = [...curQ].filter((id) => !nextQ.has(id));
+    return {
+      addedIntents,
+      removedIntents,
+      addedNodes,
+      removedNodes,
+      addedQuiz,
+      removedQuiz,
+      quizDelta: addedQuiz.length - removedQuiz.length,
+      summary:
+        (addedIntents.length ? "+" + addedIntents.length + " intent " + addedIntents.join(", ") : "") +
+        (removedIntents.length ? " −" + removedIntents.length + " intent" : "") +
+        (addedNodes.length ? "; +" + addedNodes.length + " node " + addedNodes.join(", ") : "") +
+        (removedNodes.length ? "; −" + removedNodes.length + " node " + removedNodes.join(", ") : "") +
+        (addedQuiz.length || removedQuiz.length ? "; quiz " + (addedQuiz.length - removedQuiz.length) : "")
+    };
+  }
+
+  function recapTurns(turns, brain, lang) {
+    const pairs = [];
+    const list = turns || [];
+    for (let i = 0; i < list.length - 1; i++) {
+      if (list[i].role === "user" && list[i + 1].role === "assistant") {
+        pairs.push({
+          user: String(list[i].text || ""),
+          bot: String(list[i + 1].text || ""),
+          intent: list[i + 1].intent || ""
+        });
+      }
+    }
+    if (!pairs.length) {
+      return lang === "fi" ? "Emme ole vielä ehtineet puhua paljoa." : "We haven't talked much yet — ask for a cat, some math, or a quiz.";
+    }
+    const bagBits = ["quiz", "math", "json", "cat", "dog", "mile", "pack", "pet"];
+    ((brain && brain.graph && brain.graph.nodes) || []).forEach((n) => {
+      bagBits.push(n.id);
+      if (n.label) bagBits.push(loc(n.label, "en"), loc(n.label, "fi"));
+    });
+    const bagVec = charNgrams(bagBits.join(" "), 3);
+    const scored = pairs.map((p, i) => {
+      const blob = (p.user + " " + p.bot + " " + p.intent).toLowerCase();
+      let bonus = 0;
+      if (/quiz/.test(blob)) bonus += 0.15;
+      if (/\d/.test(blob) || p.intent === "math") bonus += 0.18;
+      if (/\b(cat|dog|kissa|koira)\b/.test(blob) || p.intent === "show_media") bonus += 0.12;
+      const recency = ((i + 1) / pairs.length) * 0.35;
+      return { p, score: cosine(charNgrams(blob, 3), bagVec) + bonus + recency };
+    });
+    const lastRow = scored[scored.length - 1];
+    scored.sort((a, b) => b.score - a.score);
+    const top = [];
+    const seen = new Set();
+    const seenIntent = new Set();
+    function takeRow(row) {
+      if (!row) return;
+      const key = row.p.user.slice(0, 40);
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (row.p.intent) seenIntent.add(row.p.intent);
+      top.push(row.p);
+    }
+    takeRow(lastRow);
+    scored.forEach((row) => {
+      if (top.length >= 3) return;
+      if (row.p.intent && seenIntent.has(row.p.intent)) return;
+      takeRow(row);
+    });
+    scored.forEach((row) => {
+      if (top.length >= 3) return;
+      takeRow(row);
+    });
+    const take = top.slice(0, 3);
+    const lines = take.map((p) => {
+      const u = p.user.replace(/\s+/g, " ").trim().slice(0, 72);
+      const b = p.bot.replace(/\s+/g, " ").trim().slice(0, 88);
+      return lang === "fi" ? "Kysyit “" + u + "”. Vastasin: " + b : "You asked “" + u + "”. I answered: " + b;
+    });
+    return (lang === "fi" ? "Paikallinen tiivistelmä (ei pilveä):\n" : "Local recap (no cloud model):\n") + lines.join("\n");
+  }
+
   function compileBrain(raw) {
     const brain = clone(raw);
+    brain.intents = brain.intents || [];
+    brain.graph = brain.graph || { nodes: [], edges: [] };
+    brain.graph.nodes = brain.graph.nodes || [];
+    brain.graph.edges = brain.graph.edges || [];
+    brain.lexicon = brain.lexicon || { synonyms: {}, stopwords: {}, fiHints: [] };
+    brain.safety = brain.safety || { block_patterns: [], blocked: { en: "", fi: "" } };
+    brain.dialogue = brain.dialogue || { flows: [] };
     brain.intents.forEach((intent) => {
       intent._re = (intent.patterns || []).map((p) => {
         try {
@@ -282,14 +462,27 @@
     brain._docs = [];
     brain.intents.forEach((intent) => {
       (intent.examples || []).forEach((ex) => {
-        brain._docs.push({ kind: "intent", id: intent.id, text: ex, vec: charNgrams(ex, 3) });
+        brain._docs.push({
+          kind: "intent",
+          id: intent.id,
+          text: ex,
+          ngram: charNgrams(ex, 3),
+          hash: hashVec(ex)
+        });
       });
     });
     brain.graph.nodes.forEach((node) => {
       ["en", "fi"].forEach((lang) => {
         const summary = node.summary && node.summary[lang];
         if (summary) {
-          brain._docs.push({ kind: "node", id: node.id, lang, text: summary, vec: charNgrams(summary, 3) });
+          brain._docs.push({
+            kind: "node",
+            id: node.id,
+            lang,
+            text: summary,
+            ngram: charNgrams(summary, 3),
+            hash: hashVec(summary)
+          });
         }
         ((node.facts && node.facts[lang]) || []).forEach((fact, i) => {
           brain._docs.push({
@@ -298,10 +491,21 @@
             lang,
             i,
             text: fact,
-            vec: charNgrams(fact, 3)
+            ngram: charNgrams(fact, 3),
+            hash: hashVec(fact)
           });
         });
       });
+    });
+    brain._idf = Object.create(null);
+    brain._docs.forEach((doc) => {
+      Object.keys(doc.hash || {}).forEach((k) => {
+        brain._idf[k] = (brain._idf[k] || 0) + 1;
+      });
+    });
+    brain._idfN = brain._docs.length || 1;
+    brain._docs.forEach((doc) => {
+      doc.vec = blendVec(doc.ngram, doc.hash, brain._idf, brain._idfN);
     });
     return brain;
   }
@@ -313,6 +517,8 @@
       if (!raw) return defaultStore();
       const merged = Object.assign(defaultStore(), JSON.parse(raw));
       merged.quiz = Object.assign(defaultStore().quiz, merged.quiz || {});
+      merged.profiles = merged.profiles || [];
+      merged.failures = merged.failures || [];
       return merged;
     } catch (e) {
       return defaultStore();
@@ -327,7 +533,9 @@
       learned: [],
       facts: [],
       turns: [],
-      quiz: { lastCorrect: 0, lastAsked: 0, bestCorrect: 0, bestAsked: 0, rounds: 0 }
+      quiz: { lastCorrect: 0, lastAsked: 0, bestCorrect: 0, bestAsked: 0, rounds: 0 },
+      profiles: [],
+      failures: []
     };
   }
 
@@ -400,7 +608,9 @@
       lang,
       sentiment,
       empty: !normalized,
-      vec: charNgrams(normalized, 3)
+      vec: charNgrams(normalized, 3),
+      hashVec: hashVec(normalized),
+      blend: blendVec(charNgrams(normalized, 3), hashVec(normalized), brain && brain._idf, brain && brain._idfN)
     };
   }
 
@@ -492,6 +702,12 @@
     const spell = perceived.normalized.match(/\bspell\s+([a-zà-öø-ÿ-]+)/i);
     if (spell) found.spell = spell[1];
 
+    const named = perceived.raw.match(/\bnamed\s+([A-Za-zÀ-öø-ÿ][\wÀ-öø-ÿ'-]{0,32})/i);
+    if (named && !NAME_STOP.has(named[1].toLowerCase())) found.petName = named[1];
+    const years = perceived.normalized.match(/(\d{1,2})\s*(?:years? old|year old|yo|vuotias)\b/);
+    if (years) found.age = years[1];
+    if (found.animal && found.animal !== "both") found.species = found.species || found.animal;
+
     const nodes = (brain.graph && brain.graph.nodes) || [];
     nodes.forEach((n) => {
       const labels = [n.id, loc(n.label, "en"), loc(n.label, "fi")].filter(Boolean).map((s) => String(s).toLowerCase());
@@ -546,6 +762,15 @@
     if (intent.id === "quiz" && /\b(stop|end|quit) quiz\b/.test(perceived.normalized)) {
       score *= 0.05;
     }
+    if (intent.id === "howdy" && !/\b(how are you|how is it going|what is up|mitä kuuluu)\b/.test(perceived.normalized)) {
+      score *= 0.2;
+    }
+    if (intent.id === "how_works" && /\bhow do i\b/.test(perceived.normalized) && !/\b(work|pipeline|phase|cloud)\b/.test(perceived.normalized)) {
+      score *= 0.15;
+    }
+    if (intent.id === "attr_qa" && !/\b(how many|does a |have|legs|toes|kuinka)\b/.test(perceived.normalized)) {
+      score *= 0.1;
+    }
     return clamp(score, 0, 1.5);
   }
 
@@ -557,13 +782,53 @@
   }
 
   function semanticSearch(perceived, brain, lang) {
+    const qBlend = perceived.blend || perceived.vec;
     return brain._docs
-      .map((doc) => ({
-        ...doc,
-        score: cosine(perceived.vec, doc.vec) * (doc.lang && doc.lang !== lang ? 0.85 : 1)
-      }))
+      .map((doc) => {
+        const ngramScore = cosine(perceived.vec, doc.ngram || doc.vec || {});
+        const hashScore = cosine(qBlend, doc.vec || {});
+        const score = (0.5 * ngramScore + 0.5 * hashScore) * (doc.lang && doc.lang !== lang ? 0.85 : 1);
+        return { ...doc, score };
+      })
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
+  }
+
+  function flowAsk(flow, slot, lang) {
+    if (!flow || !flow.ask) return "";
+    const ask = flow.ask;
+    if (slot && ask[slot] && typeof ask[slot] === "object") return loc(ask[slot], lang);
+    if (slot && typeof ask[slot] === "string") return ask[slot];
+    if (ask.en || ask.fi) return loc(ask, lang);
+    return "";
+  }
+
+  function fillFlowSlot(slot, perceived, entities) {
+    if (!slot) return;
+    if (slot === "species" || slot === "animal") {
+      if (entities.animal && entities.animal !== "both") entities.species = entities.animal;
+      else if (entities.node) entities.species = entities.node;
+      else if (perceived.tokens[0]) entities[slot] = perceived.tokens[0];
+      if (slot === "animal" && entities.species && !entities.animal) entities.animal = entities.species;
+      return;
+    }
+    if (slot === "age") {
+      const m = perceived.normalized.match(/(\d{1,2})/);
+      if (m) entities.age = m[1];
+      return;
+    }
+    if (slot === "petName") {
+      const skip = new Set(["a", "an", "the", "named", "pet", "add", "my", "is", "called"]);
+      const m = perceived.raw.match(/[A-Za-zÀ-öø-ÿ][\wÀ-öø-ÿ'-]{0,32}/g) || [];
+      const name = m.find((w) => !skip.has(w.toLowerCase()) && !NAME_STOP.has(w.toLowerCase()));
+      entities.petName = name || perceived.raw.trim().slice(0, 32);
+      return;
+    }
+    if (!entities[slot]) entities[slot] = perceived.raw.trim().slice(0, 80);
+  }
+
+  function applyIntentsOnly(current, next) {
+    return mergeBrains(current, { intents: (next && next.intents) || [], responses: (next && next.responses) || {} });
   }
 
   function loc(block, lang) {
@@ -735,12 +1000,14 @@
   }
 
   function createSession(rawBrain) {
-    const brain = compileBrain(rawBrain);
+    let raw = clone(rawBrain);
+    let brain = compileBrain(raw);
     const store = loadStore();
     const state = {
       topic: null,
       lastIntent: null,
       awaiting: null,
+      flowId: null,
       slots: {},
       lang: store.lang || "en",
       lastReply: "",
@@ -831,6 +1098,8 @@
       if (/\b(repeat|say that again|what did you say|toista)\b/.test(perceived.normalized)) prefer("repeat");
       if (entities.emotion && !foundPersonCue(perceived)) prefer("emotion");
       if (/\b(quiz me|test me|kysy minulta)\b/.test(perceived.normalized) && !/\b(stop|end|quit) quiz\b/.test(perceived.normalized)) prefer("quiz");
+      if (/\b(summarize|recap|what did we talk about|tiivistä|yhteenveto)\b/.test(perceived.normalized)) prefer("recap");
+      if (/\b(add (a |my )?pet|new pet|pet profile|lisää lemmikki)\b/.test(perceived.normalized)) prefer("add_pet");
       if (perceived.empty) prefer("empty");
       ranked.sort((a, b) => b.score - a.score);
 
@@ -846,10 +1115,10 @@
       const isAck = /^(yes|yep|yeah|ok|okay|sure|please|joo|kyllä)$/i.test(perceived.normalized);
       const isDeny = /^(no|nope|nah|nevermind|never mind|cancel|stop|ei|älä)$/i.test(perceived.normalized);
 
-      if (state.awaiting === "animal" && entities.animal) {
+      if (state.awaiting === "animal" && !state.flowId && entities.animal) {
         top = ranked.find((r) => r.id === "show_media") || top;
         state.awaiting = null;
-      } else if (state.awaiting === "animal" && isAck) {
+      } else if (state.awaiting === "animal" && !state.flowId && isAck) {
         if (state.topic) {
           entities.animal = state.topic;
           top = ranked.find((r) => r.id === "show_media") || { id: "show_media", handler: "media", score: 1 };
@@ -857,7 +1126,23 @@
         }
       } else if (state.awaiting && isDeny) {
         state.awaiting = null;
+        state.flowId = null;
+        state.slots = {};
         top = ranked.find((r) => r.id === "deny") || { id: "deny", handler: "deny", score: 1 };
+      }
+
+      if (state.flowId && !isDeny && !perceived.empty && !(state.quiz && state.quiz.active)) {
+        const active = (brain.dialogue.flows || []).find((f) => f.id === state.flowId);
+        if (active) {
+          fillFlowSlot(state.awaiting, perceived, entities);
+          const intentObj = (brain.intents || []).find((i) => i.id === active.intent);
+          top = {
+            id: active.intent,
+            handler: (intentObj && intentObj.handler) || active.intent,
+            score: 1,
+            intent: intentObj || { id: active.intent }
+          };
+        }
       }
 
       if (state.quiz && state.quiz.active && !/\b(quiz me|start quiz|test me|kysy minulta)\b/.test(perceived.normalized)) {
@@ -897,11 +1182,22 @@
 
       const flow = (brain.dialogue.flows || []).find((f) => f.intent === top.id);
       let waiting = false;
-      if (flow && flow.required) {
+      if (flow && flow.required && top.id !== "deny") {
+        flow.required.forEach((slot) => {
+          if (entities[slot]) state.slots[slot] = entities[slot];
+        });
         const missing = flow.required.filter((slot) => !entities[slot] && !state.slots[slot]);
         if (missing.length) {
           state.awaiting = missing[0];
+          state.flowId = flow.id;
           waiting = true;
+        } else {
+          flow.required.forEach((slot) => {
+            if (!entities[slot]) entities[slot] = state.slots[slot];
+          });
+          state.awaiting = null;
+          state.flowId = null;
+          state.slots = {};
         }
       }
 
@@ -937,7 +1233,8 @@
       let reasonNote = top.handler;
 
       if (waiting) {
-        draft.text = loc(flow.ask, lang);
+        draft.text = flowAsk(flow, state.awaiting, lang) || loc(flow.ask, lang);
+        draft.suggestions = lang === "fi" ? ["ei", "peruuta"] : ["cancel", "nevermind"];
         reasonNote = "clarify-slot";
       } else if (learnedHit && !looksLikeTeach) {
         draft.text = learnedHit.response;
@@ -1043,6 +1340,12 @@
               );
             }
             if (store.facts.length) bits.push(store.facts[store.facts.length - 1].text);
+            if (store.profiles && store.profiles.length) {
+              const p = store.profiles[store.profiles.length - 1];
+              bits.push(lang === "fi"
+                ? `lemmikki ${p.name} (${p.species}, ${p.age})`
+                : `pet ${p.name} (${p.species}, ${p.age})`);
+            }
             draft.text = bits.length
               ? bits.join(" · ") + "."
               : lang === "fi"
@@ -1198,8 +1501,28 @@
             break;
           }
           case "deny": {
+            state.flowId = null;
+            state.slots = {};
+            state.awaiting = null;
             draft.text =
               lang === "fi" ? "Selvä, ei jatketa sitä. Mitä seuraavaksi?" : "Okay, dropping that. What instead — cat, fact, or math?";
+            break;
+          }
+          case "recap": {
+            draft.text = recapTurns(store.turns, brain, lang);
+            break;
+          }
+          case "add_pet": {
+            const name = entities.petName;
+            const species = entities.species || (entities.animal !== "both" ? entities.animal : "");
+            const age = entities.age;
+            store.profiles = store.profiles || [];
+            store.profiles.push({ name, species, age, at: Date.now() });
+            const complete = loc(flow && flow.onComplete, lang) || (lang === "fi"
+              ? "Tallennettu {{petName}}, {{species}}, {{age}}."
+              : "Saved {{petName}}, {{species}}, {{age}}.");
+            draft.text = fillTemplate(complete, { petName: name, species, age });
+            draft.suggestions = lang === "fi" ? ["lisää lemmikki", "muistatko minut"] : ["add a pet", "do you remember me"];
             break;
           }
           case "repeat": {
@@ -1408,8 +1731,13 @@
       tracesPush(traces, 9, "persona", "Persona", `lang=${lang} tone=${brain.meta.persona.tone}`, 0.7);
 
       if (!draft.suggestions) draft.suggestions = loc(brain.suggestions, lang);
-      if (entities.animal === "cat") draft.suggestions = lang === "fi" ? ["kerro kissoista", "koira", "molemmat"] : ["tell me about cats", "dog", "both"];
-      if (entities.animal === "dog") draft.suggestions = lang === "fi" ? ["kerro koirista", "kissa", "molemmat"] : ["tell me about dogs", "cat", "both"];
+      if (entities.animal === "cat" && top.id !== "add_pet") draft.suggestions = lang === "fi" ? ["kerro kissoista", "koira", "molemmat"] : ["tell me about cats", "dog", "both"];
+      if (entities.animal === "dog" && top.id !== "add_pet") draft.suggestions = lang === "fi" ? ["kerro koirista", "kissa", "molemmat"] : ["tell me about dogs", "cat", "both"];
+      if (top.id === "fallback") {
+        const base = Array.isArray(draft.suggestions) ? draft.suggestions.slice() : loc(brain.suggestions, lang) || [];
+        if (base.indexOf("Save as test") < 0) base.push("Save as test");
+        draft.suggestions = base;
+      }
 
       tracesPush(traces, 10, "planner", "Planner", `handler=${top.handler || reasonNote} · ${draft.html ? "media" : "text"}`, 0.9);
 
@@ -1435,7 +1763,14 @@
           favoriteAnimal: store.favoriteAnimal,
           learned: store.learned.length,
           facts: store.facts.length,
-          quiz: store.quiz || defaultStore().quiz
+          quiz: store.quiz || defaultStore().quiz,
+          profiles: (store.profiles || []).length
+        },
+        graphFocus: {
+          nodes: [entities.node, entities.animal !== "both" ? entities.animal : null, yn && yn.a && yn.a.id, yn && yn.b && yn.b.id, state.topic]
+            .filter(Boolean)
+            .filter((id, i, arr) => arr.indexOf(id) === i),
+          edge: yn && yn.hit ? { from: yn.a.id, to: yn.b.id, rel: yn.hit.rel } : null
         }
       };
     }
@@ -1446,14 +1781,33 @@
       Object.assign(store, fresh);
       state.topic = null;
       state.awaiting = null;
+      state.flowId = null;
+      state.slots = {};
       state.quiz = null;
       saveStore(store);
     }
 
+    function mergePack(pack) {
+      raw = mergeBrains(raw, pack);
+      brain = compileBrain(raw);
+      return brain;
+    }
+
+    function replaceBrain(nextRaw) {
+      raw = clone(nextRaw);
+      brain = compileBrain(raw);
+      return brain;
+    }
+
     return {
-      brain,
+      get brain() {
+        return brain;
+      },
       reply,
       resetMemory,
+      mergePack,
+      replaceBrain,
+      getRaw: () => clone(raw),
       getStore: () => clone(store),
       getState: () => clone(state)
     };
@@ -1481,6 +1835,13 @@
     perceive,
     cosine,
     charNgrams,
+    hashVec,
+    blendVec,
+    semanticSearch,
+    mergeBrains,
+    diffBrains,
+    applyIntentsOnly,
+    recapTurns,
     levenshtein,
     applyMath,
     parseMath,
