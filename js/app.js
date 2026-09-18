@@ -226,8 +226,12 @@
       const a = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
       pos[n.id] = { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
     });
-    const focusNodes = (focus && focus.nodes) || [];
+    const focusNodes = ((focus && focus.nodes) || []).slice();
     const focusEdge = focus && focus.edge;
+    if (focusEdge) {
+      if (focusEdge.from) focusNodes.push(focusEdge.from);
+      if (focusEdge.to) focusNodes.push(focusEdge.to);
+    }
     let svg = `<svg viewBox="0 0 ${W} ${H}" class="kg" role="img" aria-label="knowledge graph">`;
     edges.forEach((e) => {
       const a = pos[e.from];
@@ -355,17 +359,27 @@
     }
   }
 
+  function looksLikePack(doc) {
+    if (!doc || typeof doc !== "object") return false;
+    if (doc.roadmap && doc.safety && doc.meta && doc.meta.persona) return false;
+    return !!(doc.intents || (doc.graph && doc.graph.nodes) || doc.quiz);
+  }
+
   function showDiff(next) {
-    const diff = Cortex.diffBrains(rawBrain, next);
-    pendingImport = { next: next, diff: diff };
-    $("#diff-summary").textContent = diff.summary || "(no structural delta)";
+    const merge = looksLikePack(next);
+    const compare = merge ? Cortex.mergeBrains(rawBrain, next) : next;
+    const diff = Cortex.diffBrains(rawBrain, compare);
+    pendingImport = { next: next, diff: diff, merge: merge };
+    $("#diff-summary").textContent =
+      (merge ? "Pack merge — " : "Replace brain — ") + (diff.summary || "(no structural delta)");
     const ul = $("#diff-list");
     ul.innerHTML = "";
     (diff.addedIntents || []).forEach((id) => ul.appendChild(el("li", {}, ["+ intent " + id])));
     (diff.removedIntents || []).forEach((id) => ul.appendChild(el("li", {}, ["− intent " + id])));
     (diff.addedNodes || []).forEach((id) => ul.appendChild(el("li", {}, ["+ node " + id])));
     (diff.removedNodes || []).forEach((id) => ul.appendChild(el("li", {}, ["− node " + id])));
-    if (diff.quizDelta) ul.appendChild(el("li", {}, ["quiz delta " + diff.quizDelta]));
+    (diff.addedQuiz || []).forEach((id) => ul.appendChild(el("li", {}, ["+ quiz " + id])));
+    if (!ul.childNodes.length) ul.appendChild(el("li", {}, ["No intent/node/quiz id changes."]));
     $("#diff-modal").classList.remove("hidden");
   }
 
@@ -523,7 +537,10 @@
     $("#diff-cancel").addEventListener("click", hideDiff);
     $("#diff-apply").addEventListener("click", () => {
       if (!pendingImport) return;
-      $("#brain-json").value = JSON.stringify(pendingImport.next, null, 2);
+      const next = pendingImport.merge
+        ? Cortex.mergeBrains(baseBrain || rawBrain, pendingImport.next)
+        : pendingImport.next;
+      $("#brain-json").value = JSON.stringify(next, null, 2);
       hideDiff();
       applyBrainJson();
     });
