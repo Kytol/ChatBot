@@ -248,13 +248,30 @@ assert(Cortex.applyMath({ left: "2", op: "+", right: "3" }).pretty === "5", "mat
   const sess = session();
   sess.reply("tell me about foxes");
   sess.reply("thanks");
-  const report = sess.rehearse(10);
+  const report = sess.rehearse(12);
   assert(report.ran >= 1, "rehearse ran drills: " + report.ran);
   assert(sess.getLoop().rehearsals >= 1, "rehearsal counter");
+  const snap = sess.getLoop();
+  assert(snap.mut && Object.keys(snap.mut).some((k) => snap.mut[k].try > 0), "mutation policy recorded tries");
+  assert(["synonym", "drop", "transpose", "repeat"].indexOf(snap.preferredMut) >= 0, "preferredMut " + snap.preferredMut);
+  assert(snap.batch >= 1 && snap.batch <= 4, "adaptive batch " + snap.batch);
+  assert((report.reports || []).some((r) => r.mode), "each drill names a mutation mode");
 }
 
 check("how are you learning", "learn_status", /local learning loop|rehearsal accuracy/i);
 check("that's wrong", "critique", /downweight|meant/i);
+
+{
+  const out = session().reply("zzzz not a real utterance 12345");
+  const meant = (out.suggestions || []).filter((s) => String(s).indexOf("meant:") === 0);
+  assert(meant.length >= 1, "fallback still offers meant chips");
+  meant.forEach((s) => {
+    assert(
+      !/^meant:(critique|learn_status|thanks|yes_no|fallback|empty|howdy|origin)$/.test(s),
+      "meant chip should be a content intent, got " + s
+    );
+  });
+}
 
 {
   const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, "../data/failures.json"), "utf8"));

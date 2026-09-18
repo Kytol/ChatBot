@@ -246,6 +246,10 @@
           L.exampleCount +
           " · adapter " +
           (L.lastAdapter || "example") +
+          " · drill " +
+          (L.preferredMut || "synonym") +
+          " · batch " +
+          (L.batch || 2) +
           " · threshold " +
           L.threshold.toFixed(2)
       ])
@@ -618,7 +622,8 @@
     registerSW();
     window.setInterval(() => {
       if (!session || !session.rehearse) return;
-      session.rehearse(2);
+      const n = (session.getLoop() && session.getLoop().batch) || 2;
+      session.rehearse(n);
       renderLoop();
     }, 2800);
   }

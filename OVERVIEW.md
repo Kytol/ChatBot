@@ -106,8 +106,8 @@ Cortex keeps a **rehearsal loop** in `localStorage` (`store.loop`):
 1. Each normal turn is an episode (input, intent, tokens).
 2. `thanks` / `kiitos` rewards the previous episode: extra examples + keyword bumps, and the adapter that produced the last update gets a higher learning rate.
 3. `that's wrong` downweights it; `meant:animal_fact` (chips on fallback) relabels and stores the phrase as a local example.
-4. The Loop tab and an idle timer **rehearse** paraphrases (synonym swap, drop a word, transpose letters). Hits strengthen keywords; misses promote the mutant as a new example of the intended intent.
-5. Meta-learning: if fallback rate is high, raise example LR and hashed-blend mix; if things are stable, shrink rates so it does not thrash.
+4. The Loop tab and an idle timer **rehearse** paraphrases. Drill *modes* (synonym swap, drop a word, transpose letters, repeat) are sampled by their own hit rate, so the loop learns which practice method works. Hits strengthen keywords; misses promote the mutant as a new example. Confused intents are rehearsed more often.
+5. Meta-learning: if fallback rate is high, raise example LR and hashed-blend mix; if rehearsal accuracy stays high, prefer the keyword adapter and shrink the others so it does not thrash. Idle batch size grows when accuracy is weak and shrinks when it is stable.
 
 No gradient descent in a datacenter — just JSON adapters and rates in this browser. `how are you learning?` opens the Loop tab.
 

@@ -7,6 +7,19 @@
 
   const STORAGE_KEY = "cortex.local.v1";
   const INTENT_THRESHOLD = 0.42;
+  const MUTATION_MODES = ["synonym", "drop", "transpose", "repeat"];
+  const SKIP_LABEL = {
+    fallback: 1,
+    empty: 1,
+    critique: 1,
+    learn_status: 1,
+    thanks: 1,
+    yes_no: 1,
+    deny: 1,
+    repeat: 1,
+    howdy: 1,
+    origin: 1
+  };
 
   const SPRITES = {
     cat: `<svg class="sprite" viewBox="0 0 240 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="cat">
@@ -456,7 +469,9 @@
         promotions: 0,
         corrections: 0,
         rewardsPos: 0,
-        rewardsNeg: 0
+        rewardsNeg: 0,
+        mut: {},
+        confusion: {}
       }
     };
   }
@@ -477,7 +492,85 @@
     ["lastAdapter", "emaReward", "emaFallback", "rehearsals", "rehearsalHits", "promotions", "corrections", "rewardsPos", "rewardsNeg"].forEach((k) => {
       if (loop.meta[k] == null) loop.meta[k] = base.meta[k];
     });
+    if (!loop.meta.mut) loop.meta.mut = {};
+    if (!loop.meta.confusion) loop.meta.confusion = {};
     return loop;
+  }
+
+  function pickWeighted(items, weightFn) {
+    if (!items || !items.length) return null;
+    const weights = items.map((item, i) => Math.max(0.001, Number(weightFn(item, i)) || 0.001));
+    const sum = weights.reduce((a, b) => a + b, 0);
+    let r = Math.random() * sum;
+    for (let i = 0; i < items.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return items[i];
+    }
+    return items[items.length - 1];
+  }
+
+  function labelCandidates(ranked, limit) {
+    return (ranked || []).filter((r) => r && r.id && !SKIP_LABEL[r.id]).slice(0, limit || 3);
+  }
+
+  function mutationRate(loop, mode) {
+    const row = (loop.meta && loop.meta.mut && loop.meta.mut[mode]) || { hit: 0, try: 0 };
+    return (row.hit + 1) / (row.try + 2);
+  }
+
+  function pickMutationMode(loop) {
+    return pickWeighted(MUTATION_MODES, (mode) => mutationRate(loop, mode)) || "synonym";
+  }
+
+  function creditMutation(loop, mode, hit) {
+    if (!mode) return;
+    loop.meta.mut[mode] = loop.meta.mut[mode] || { hit: 0, try: 0 };
+    loop.meta.mut[mode].try += 1;
+    if (hit) loop.meta.mut[mode].hit += 1;
+  }
+
+  function markConfusion(loop, want, hit) {
+    if (!want) return;
+    const cur = loop.meta.confusion[want] || 0;
+    loop.meta.confusion[want] = Math.max(0, hit ? cur - 0.25 : cur + 1);
+  }
+
+  function preferredMut(loop) {
+    let best = "synonym";
+    let bestRate = -1;
+    MUTATION_MODES.forEach((mode) => {
+      const rate = mutationRate(loop, mode);
+      if (rate > bestRate) {
+        bestRate = rate;
+        best = mode;
+      }
+    });
+    return best;
+  }
+
+  function rehearseBatchSize(loop) {
+    const m = loop.meta;
+    const acc = m.rehearsals ? m.rehearsalHits / m.rehearsals : 0.5;
+    if (m.emaFallback > 0.28 || acc < 0.55) return 4;
+    if (acc > 0.88 && m.emaFallback < 0.12) return 1;
+    return 2;
+  }
+
+  function maybeTuneFromRehearsal(loop) {
+    const m = loop.meta;
+    if (!m.rehearsals || m.rehearsals % 8 !== 0) return;
+    const acc = m.rehearsalHits / m.rehearsals;
+    if (acc < 0.55) {
+      m.lr.example = clamp(m.lr.example * 1.08, 0.25, 2.5);
+      m.lastAdapter = "example";
+      loop.note = (loop.note ? loop.note + " " : "") + "Meta: example LR up after weak rehearsal.";
+    } else if (acc > 0.85) {
+      m.lr.keyword = clamp(m.lr.keyword * 1.04, 0.25, 2.5);
+      Object.keys(m.lr).forEach((k) => {
+        if (k !== "keyword") m.lr[k] = clamp(m.lr[k] * 0.99, 0.25, 2.5);
+      });
+      m.lastAdapter = "keyword";
+    }
   }
 
   function addUnique(list, item, cap) {
@@ -560,22 +653,19 @@
     return loop;
   }
 
-  function mutateUtterance(text, brain) {
+  function applyMutationMode(tokens, brain, mode) {
     const synonyms = (brain && brain.lexicon && brain.lexicon.synonyms) || {};
-    const tokens = String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
-    if (!tokens.length) return String(text || "");
-    const mode = Math.floor(Math.random() * 4);
     const out = tokens.slice();
-    if (mode === 0) {
+    if (mode === "synonym") {
       for (let i = 0; i < out.length; i++) {
         if (synonyms[out[i]] && synonyms[out[i]] !== out[i]) {
           out[i] = synonyms[out[i]];
           break;
         }
       }
-    } else if (mode === 1 && out.length > 2) {
+    } else if (mode === "drop" && out.length > 2) {
       out.splice(Math.floor(Math.random() * out.length), 1);
-    } else if (mode === 2) {
+    } else if (mode === "transpose") {
       const i = Math.floor(Math.random() * out.length);
       const w = out[i];
       if (w.length > 3) out[i] = w[0] + w[2] + w[1] + w.slice(3);
@@ -585,12 +675,45 @@
     return out.join(" ");
   }
 
-  function rehearseOnce(brain, store) {
-    const loop = ensureLoop(store);
+  function mutateWithMode(text, brain, preferred) {
+    const tokens = String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    if (!tokens.length) return { text: String(text || ""), mode: preferred || "repeat" };
+    const original = tokens.join(" ");
+    const order =
+      preferred && MUTATION_MODES.indexOf(preferred) >= 0
+        ? [preferred].concat(MUTATION_MODES.filter((m) => m !== preferred))
+        : MUTATION_MODES.slice();
+    for (let i = 0; i < order.length; i++) {
+      const mutant = applyMutationMode(tokens, brain, order[i]);
+      if (mutant && mutant !== original) return { text: mutant, mode: order[i] };
+    }
+    return { text: original, mode: preferred || "repeat" };
+  }
+
+  function mutateUtterance(text, brain, preferred) {
+    return mutateWithMode(text, brain, preferred).text;
+  }
+
+  function pickEpisode(loop) {
     const pool = (loop.episodes || []).filter((e) => e && e.intent && e.intent !== "fallback" && (e.reward || 0) >= 0);
     if (!pool.length) return null;
-    const ep = pool[Math.floor(Math.random() * pool.length)];
-    const mutant = mutateUtterance(ep.input, brain);
+    const conf = loop.meta.confusion || {};
+    return pickWeighted(pool, (e, i) => {
+      const recency = (i + 1) / pool.length;
+      const confused = 1 + (conf[e.intent] || 0);
+      const weak = (e.score || 0) < 0.55 ? 1.5 : 1;
+      const rewarded = (e.reward || 0) > 0 ? 1.25 : 1;
+      return recency * confused * weak * rewarded;
+    });
+  }
+
+  function rehearseOnce(brain, store) {
+    const loop = ensureLoop(store);
+    const ep = pickEpisode(loop);
+    if (!ep) return null;
+    const mode = pickMutationMode(loop);
+    const drilled = mutateWithMode(ep.input, brain, mode);
+    const mutant = drilled.text;
     if (!mutant || mutant === String(ep.input || "").toLowerCase()) return null;
     const perceived = perceive(mutant, brain);
     const ranked = classifyIntents(perceived, brain, loop);
@@ -598,6 +721,8 @@
     const got = top && top.id;
     const hit = got === ep.intent;
     loop.meta.rehearsals += 1;
+    creditMutation(loop, drilled.mode, hit);
+    markConfusion(loop, ep.intent, hit);
     if (hit) {
       loop.meta.rehearsalHits += 1;
       loop.keywordBoost[ep.intent] = loop.keywordBoost[ep.intent] || {};
@@ -606,15 +731,16 @@
         loop.keywordBoost[ep.intent][tok] = clamp((loop.keywordBoost[ep.intent][tok] || 0) + 0.01 * (loop.meta.lr.keyword || 1), -0.35, 0.55);
       });
       loop.meta.lastAdapter = "keyword";
-      loop.note = "Rehearsal hit: “" + mutant.slice(0, 48) + "” still " + ep.intent + ".";
+      loop.note = "Rehearsal hit (" + drilled.mode + "): “" + mutant.slice(0, 48) + "” still " + ep.intent + ".";
     } else if (got) {
       loop.examples[ep.intent] = addUnique(loop.examples[ep.intent] || [], mutant, 12);
       loop.anti[got] = addUnique(loop.anti[got] || [], mutant, 8);
       loop.meta.promotions += 1;
       loop.meta.lastAdapter = "example";
-      loop.note = "Rehearsal miss → taught “" + mutant.slice(0, 40) + "” as " + ep.intent + ".";
+      loop.note = "Rehearsal miss (" + drilled.mode + ") → taught “" + mutant.slice(0, 40) + "” as " + ep.intent + ".";
     }
-    return { mutant: mutant, want: ep.intent, got: got, hit: hit };
+    maybeTuneFromRehearsal(loop);
+    return { mutant: mutant, want: ep.intent, got: got, hit: hit, mode: drilled.mode };
   }
 
   function loopSnapshot(store) {
@@ -638,7 +764,11 @@
       lastAdapter: m.lastAdapter,
       note: loop.note || "",
       exampleCount: Object.keys(loop.examples).reduce((n, k) => n + (loop.examples[k] || []).length, 0),
-      episodes: (loop.episodes || []).length
+      episodes: (loop.episodes || []).length,
+      mut: clone(m.mut || {}),
+      preferredMut: preferredMut(loop),
+      batch: rehearseBatchSize(loop),
+      confusion: clone(m.confusion || {})
     };
   }
 
@@ -1412,9 +1542,11 @@
         if (known && state.lastEpisode) {
           if (state.lastEpisode.intent && state.lastEpisode.intent !== want) {
             applyReward(store, { input: state.lastEpisode.input, intent: state.lastEpisode.intent, tokens: state.lastEpisode.tokens }, -1, "example");
+            markConfusion(loop, state.lastEpisode.intent, false);
           }
           state.lastEpisode.intent = want;
           applyReward(store, state.lastEpisode, 1, "example");
+          markConfusion(loop, want, true);
           loop.meta.corrections += 1;
           loop.examples[want] = addUnique(loop.examples[want] || [], state.lastEpisode.input, 12);
           top = { id: "learn_status", handler: "learn_status", score: 1, intent: { id: "learn_status" } };
@@ -1774,10 +1906,7 @@
           }
           case "critique": {
             if (state.lastEpisode) applyReward(store, state.lastEpisode, -1, "example");
-            const opts = (state.lastRanked || [])
-              .filter((r) => r.id && r.id !== "fallback" && r.id !== "critique")
-              .slice(0, 4)
-              .map((r) => "meant:" + r.id);
+            const opts = labelCandidates(state.lastRanked || [], 4).map((r) => "meant:" + r.id);
             draft.text =
               lang === "fi"
                 ? "Selvä — heikennän tuota paikallisesti. Napauta intended-aietta (meant:…)."
@@ -1823,7 +1952,10 @@
                   ", threshold " +
                   snap.threshold.toFixed(2) +
                   ". " +
-                  (snap.note || "Say thanks, “that's wrong”, or meant:animal_fact to teach me.");
+                  (snap.note || "Say thanks, “that's wrong”, or meant:animal_fact to teach me.") +
+                  " Preferred drill: " +
+                  (snap.preferredMut || "synonym") +
+                  ".";
             draft.openTab = "loop";
             draft.suggestions = lang === "fi" ? ["kiitos", "that's wrong"] : ["thanks", "that's wrong", "how are you learning"];
             break;
@@ -2061,13 +2193,10 @@
       if (top.id === "fallback") {
         const base = Array.isArray(draft.suggestions) ? draft.suggestions.slice() : loc(brain.suggestions, lang) || [];
         if (base.indexOf("Save as test") < 0) base.push("Save as test");
-        ranked
-          .filter((r) => r.id !== "fallback" && r.id !== "empty")
-          .slice(0, 3)
-          .forEach((r) => {
-            const chip = "meant:" + r.id;
-            if (base.indexOf(chip) < 0) base.push(chip);
-          });
+        labelCandidates(ranked, 3).forEach((r) => {
+          const chip = "meant:" + r.id;
+          if (base.indexOf(chip) < 0) base.push(chip);
+        });
         draft.suggestions = base;
       }
 
