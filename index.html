@@ -55,6 +55,7 @@
             <button type="button" data-tab="memory">Memory</button>
             <button type="button" data-tab="graph">Graph</button>
             <button type="button" data-tab="brain">Brain</button>
+            <button type="button" data-tab="loop">Loop</button>
             <button type="button" data-tab="roadmap">Phases</button>
           </div>
           <div class="panel-body" data-pane="trace">
@@ -83,6 +84,14 @@
             </div>
             <p id="brain-error" class="err"></p>
             <textarea id="brain-json" class="brain" spellcheck="false" aria-label="Brain JSON"></textarea>
+          </div>
+          <div class="panel-body hidden" data-pane="loop">
+            <p class="hint">On-device loop: reward from thanks / “that’s wrong” / meant: labels, then rehearse paraphrases and raise the adapters that actually helped. Nothing leaves this browser.</p>
+            <div class="actions">
+              <button id="loop-practice" type="button">Practice now</button>
+              <button id="loop-reset" type="button">Reset loop</button>
+            </div>
+            <div id="loop-view"></div>
           </div>
           <div class="panel-body hidden" data-pane="roadmap">
             <p class="hint">Implemented end-to-end in HTML, CSS, and JavaScript. The cloud is not in the request path.</p>

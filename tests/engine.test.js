@@ -223,6 +223,39 @@ assert(Cortex.applyMath({ left: "2", op: "+", right: "3" }).pretty === "5", "mat
 }
 
 {
+  const sess = session();
+  let out = sess.reply("zzzz not a real utterance 12345");
+  assert(out.intent === "fallback", "loop seed fallback");
+  out = sess.reply("meant:animal_fact");
+  assert(out.intent === "learn_status", "label uses learn_status, got " + out.intent);
+  assert(sess.getLoop().corrections >= 1, "correction counted");
+  out = sess.reply("zzzz not a real utterance 12345");
+  assert(out.intent === "animal_fact", "labeled phrase now animal_fact, got " + out.intent);
+}
+
+{
+  const sess = session();
+  sess.reply("cat");
+  const before = sess.getLoop().lr.example;
+  const out = sess.reply("thanks");
+  assert(out.intent === "thanks", "thanks intent");
+  assert(sess.getLoop().rewardsPos >= 1, "thanks rewards previous turn");
+  assert(sess.getLoop().lr.example >= before, "example LR did not shrink after success");
+}
+
+{
+  const sess = session();
+  sess.reply("tell me about foxes");
+  sess.reply("thanks");
+  const report = sess.rehearse(10);
+  assert(report.ran >= 1, "rehearse ran drills: " + report.ran);
+  assert(sess.getLoop().rehearsals >= 1, "rehearsal counter");
+}
+
+check("how are you learning", "learn_status", /local learning loop|rehearsal accuracy/i);
+check("that's wrong", "critique", /downweight|meant/i);
+
+{
   const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, "../data/failures.json"), "utf8"));
   fixtures.forEach((row, i) => {
     if (!row || !row.want) return;

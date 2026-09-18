@@ -324,6 +324,32 @@ textarea.brain {
 .mem dt { color: var(--brass); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 10px; }
 .mem dd { margin: 4px 0 0; }
 
+.loop-stat { margin: 8px 0 12px; }
+.loop-stat .meter {
+  height: 6px;
+  background: #2a261c;
+  border-radius: 99px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.loop-stat .meter > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--brass), var(--patina));
+}
+.loop-note {
+  font-size: 0.82rem;
+  color: var(--ink);
+  margin: 8px 0;
+}
+.loop-ep {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-dim);
+  padding: 4px 0;
+  border-bottom: 1px dashed #332e24;
+}
+
 .err { color: var(--ember); font-size: 0.85rem; }
 
 .pack-list { margin: 0 0 8px; }

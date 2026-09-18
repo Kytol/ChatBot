@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "Cortex",
-    "version": "11.0",
+    "version": "12.0",
     "tagline": {
       "en": "On-device conversational intelligence. No cloud inference.",
       "fi": "Laitteella toimiva keskusteluäly. Ei pilvipäättelyä."
@@ -463,6 +463,22 @@
       "handler": "add_pet"
     },
     {
+      "id": "learn_status",
+      "priority": 14,
+      "patterns": ["\\b(how are you learning|learning loop|rehearsal accuracy|are you getting better|show (the )?loop)\\b"],
+      "keywords": { "learning": 0.8, "rehearsal": 0.7, "loop": 0.5 },
+      "examples": ["how are you learning", "learning loop", "are you getting better"],
+      "handler": "learn_status"
+    },
+    {
+      "id": "critique",
+      "priority": 13,
+      "patterns": ["\\b(that('?s| is) wrong|not what i meant|bad answer|you got that wrong)\\b"],
+      "keywords": { "wrong": 0.8, "meant": 0.4 },
+      "examples": ["that's wrong", "not what I meant", "bad answer"],
+      "handler": "critique"
+    },
+    {
       "id": "fallback",
       "priority": 0,
       "patterns": [".*"],
@@ -810,7 +826,7 @@
     }
   },
   "suggestions": {
-      "en": ["cat", "dog", "quiz me", "add a pet", "summarize our chat", "How do you work?", "two plus two"],
+      "en": ["cat", "dog", "quiz me", "add a pet", "summarize our chat", "how are you learning", "How do you work?"],
     "fi": ["kissa", "koira", "molemmat", "Miten toimit?", "Kerro kissoista", "Laske 12 * 7", "Nimeni on Aino"]
   }
 }

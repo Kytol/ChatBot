@@ -17,6 +17,7 @@ The original one-file bot (`chatBot.html`) already stored regex → reply pairs 
 - **Recap** — `summarize our chat` extracts local turns (no cloud summary)
 - **Pet profile flow** — `add a pet` fills species / age / name into `localStorage`
 - **PWA** — `sw.js` precaches the shell so a second visit can run offline
+- **Learning loop** — rewards, corrections, and idle rehearsal update examples and adapter rates in `localStorage`
 - Brain tab: edit, apply, **import with a diff**, export; fallback chip **Save as test** downloads `failures.json`
 
 ## Run
@@ -97,6 +98,19 @@ Say `quiz me` or `quiz me about cats`. Cortex builds up to five questions from:
 - numeric `attrs.legs` (how many legs)
 
 Answers are graded locally (exact tokens, then n-gram overlap). `skip` / `stop quiz` work mid-round. Last and best scores appear on the Memory tab.
+
+## Learning loop (local)
+
+Cortex keeps a **rehearsal loop** in `localStorage` (`store.loop`):
+
+1. Each normal turn is an episode (input, intent, tokens).
+2. `thanks` / `kiitos` rewards the previous episode: extra examples + keyword bumps, and the adapter that produced the last update gets a higher learning rate.
+3. `that's wrong` downweights it; `meant:animal_fact` (chips on fallback) relabels and stores the phrase as a local example.
+4. The Loop tab and an idle timer **rehearse** paraphrases (synonym swap, drop a word, transpose letters). Hits strengthen keywords; misses promote the mutant as a new example of the intended intent.
+5. Meta-learning: if fallback rate is high, raise example LR and hashed-blend mix; if things are stable, shrink rates so it does not thrash.
+
+No gradient descent in a datacenter — just JSON adapters and rates in this browser. `how are you learning?` opens the Loop tab.
+
 
 ## Other shipped ideas
 

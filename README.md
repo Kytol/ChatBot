@@ -60,6 +60,8 @@ Then `ping` is answered from local memory, still with no cloud call.
 - `add a pet` — species → age → name, stored in this browser
 - `summarize our chat` — extractive recap of recent turns
 - `how do I boil eggs?` — after enabling the Cooking pack on the Brain tab
+- `how are you learning?` — local rehearsal stats, adapter learning rates (Loop tab)
+- `that's wrong` then `meant:animal_fact` — correct the last turn in this browser
 - `how do you work?` — the pipeline in plain language
 
 Fallback replies offer **Save as test**. That downloads `failures.json`. Fill `"want"` with an intent id and either drop the file in `data/failures.json` (the runner skips empty `want`) or paste:

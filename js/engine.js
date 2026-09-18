@@ -436,6 +436,212 @@
     return (lang === "fi" ? "Paikallinen tiivistelmä (ei pilveä):\n" : "Local recap (no cloud model):\n") + lines.join("\n");
   }
 
+  function defaultLoop() {
+    return {
+      episodes: [],
+      examples: {},
+      anti: {},
+      keywordBoost: {},
+      blendHash: 0.5,
+      threshold: INTENT_THRESHOLD,
+      note: "",
+      meta: {
+        lr: { example: 1, keyword: 1, blend: 1, threshold: 1 },
+        credit: { example: 0, keyword: 0, blend: 0, threshold: 0 },
+        lastAdapter: "example",
+        emaReward: 0,
+        emaFallback: 0.15,
+        rehearsals: 0,
+        rehearsalHits: 0,
+        promotions: 0,
+        corrections: 0,
+        rewardsPos: 0,
+        rewardsNeg: 0
+      }
+    };
+  }
+
+  function ensureLoop(store) {
+    if (!store.loop) store.loop = defaultLoop();
+    const loop = store.loop;
+    const base = defaultLoop();
+    if (!loop.examples) loop.examples = {};
+    if (!loop.anti) loop.anti = {};
+    if (!loop.keywordBoost) loop.keywordBoost = {};
+    if (!loop.episodes) loop.episodes = [];
+    if (loop.blendHash == null) loop.blendHash = base.blendHash;
+    if (loop.threshold == null) loop.threshold = base.threshold;
+    if (!loop.meta) loop.meta = base.meta;
+    loop.meta.lr = Object.assign({}, base.meta.lr, loop.meta.lr || {});
+    loop.meta.credit = Object.assign({}, base.meta.credit, loop.meta.credit || {});
+    ["lastAdapter", "emaReward", "emaFallback", "rehearsals", "rehearsalHits", "promotions", "corrections", "rewardsPos", "rewardsNeg"].forEach((k) => {
+      if (loop.meta[k] == null) loop.meta[k] = base.meta[k];
+    });
+    return loop;
+  }
+
+  function addUnique(list, item, cap) {
+    const s = String(item || "").replace(/\s+/g, " ").trim();
+    if (!s) return list;
+    if (list.indexOf(s) < 0) list.push(s);
+    while (list.length > (cap || 12)) list.shift();
+    return list;
+  }
+
+  function bestAdapter(meta) {
+    let id = meta.lastAdapter || "example";
+    let best = -Infinity;
+    Object.keys(meta.credit || {}).forEach((k) => {
+      if (meta.credit[k] > best) {
+        best = meta.credit[k];
+        id = k;
+      }
+    });
+    return id;
+  }
+
+  function tuneMeta(loop, reward) {
+    const m = loop.meta;
+    m.emaReward = 0.85 * m.emaReward + 0.15 * reward;
+    const a = m.lastAdapter || "example";
+    if (m.lr[a] == null) m.lr[a] = 1;
+    if (reward > 0) {
+      m.lr[a] = clamp(m.lr[a] * 1.1, 0.25, 2.5);
+      m.credit[a] = (m.credit[a] || 0) + 1;
+      m.rewardsPos += 1;
+    } else {
+      m.lr[a] = clamp(m.lr[a] * 0.88, 0.25, 2.5);
+      m.credit[a] = (m.credit[a] || 0) - 0.5;
+      m.rewardsNeg += 1;
+    }
+    if (m.emaFallback > 0.32) {
+      m.lr.example = clamp(m.lr.example * 1.06, 0.25, 2.5);
+      loop.blendHash = clamp(loop.blendHash + 0.03 * (m.lr.blend || 1), 0.2, 0.8);
+      m.lastAdapter = "blend";
+    } else if (m.emaReward > 0.35 && m.emaFallback < 0.12) {
+      Object.keys(m.lr).forEach((k) => {
+        m.lr[k] = clamp(m.lr[k] * 0.97, 0.25, 2.5);
+      });
+    } else {
+      m.lastAdapter = bestAdapter(m);
+    }
+  }
+
+  function applyReward(store, episode, reward, adapter) {
+    const loop = ensureLoop(store);
+    if (!episode || !episode.intent) return loop;
+    const m = loop.meta;
+    if (adapter) m.lastAdapter = adapter;
+    const intent = episode.intent;
+    const lrEx = m.lr.example || 1;
+    const lrKw = m.lr.keyword || 1;
+    if (reward > 0 && intent !== "fallback") {
+      loop.examples[intent] = addUnique(loop.examples[intent] || [], episode.input, Math.round(8 + 4 * lrEx));
+      loop.keywordBoost[intent] = loop.keywordBoost[intent] || {};
+      (episode.tokens || []).forEach((tok) => {
+        if (!tok || tok.length < 3) return;
+        loop.keywordBoost[intent][tok] = clamp((loop.keywordBoost[intent][tok] || 0) + 0.045 * lrKw, -0.35, 0.55);
+      });
+    } else if (reward < 0) {
+      loop.anti[intent] = addUnique(loop.anti[intent] || [], episode.input, 8);
+      loop.keywordBoost[intent] = loop.keywordBoost[intent] || {};
+      (episode.tokens || []).forEach((tok) => {
+        if (!tok || tok.length < 3) return;
+        loop.keywordBoost[intent][tok] = clamp((loop.keywordBoost[intent][tok] || 0) - 0.03 * lrKw, -0.35, 0.55);
+      });
+      loop.threshold = clamp(loop.threshold + 0.015 * (m.lr.threshold || 1) * (intent === "fallback" ? -1 : 1), 0.28, 0.6);
+    }
+    episode.reward = (episode.reward || 0) + reward;
+    tuneMeta(loop, reward);
+    loop.note =
+      reward > 0
+        ? "Rewarded " + intent + " locally (" + (m.lastAdapter || "example") + ")."
+        : "Downweighted " + intent + " locally.";
+    return loop;
+  }
+
+  function mutateUtterance(text, brain) {
+    const synonyms = (brain && brain.lexicon && brain.lexicon.synonyms) || {};
+    const tokens = String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    if (!tokens.length) return String(text || "");
+    const mode = Math.floor(Math.random() * 4);
+    const out = tokens.slice();
+    if (mode === 0) {
+      for (let i = 0; i < out.length; i++) {
+        if (synonyms[out[i]] && synonyms[out[i]] !== out[i]) {
+          out[i] = synonyms[out[i]];
+          break;
+        }
+      }
+    } else if (mode === 1 && out.length > 2) {
+      out.splice(Math.floor(Math.random() * out.length), 1);
+    } else if (mode === 2) {
+      const i = Math.floor(Math.random() * out.length);
+      const w = out[i];
+      if (w.length > 3) out[i] = w[0] + w[2] + w[1] + w.slice(3);
+    } else {
+      out.push(out[out.length - 1]);
+    }
+    return out.join(" ");
+  }
+
+  function rehearseOnce(brain, store) {
+    const loop = ensureLoop(store);
+    const pool = (loop.episodes || []).filter((e) => e && e.intent && e.intent !== "fallback" && (e.reward || 0) >= 0);
+    if (!pool.length) return null;
+    const ep = pool[Math.floor(Math.random() * pool.length)];
+    const mutant = mutateUtterance(ep.input, brain);
+    if (!mutant || mutant === String(ep.input || "").toLowerCase()) return null;
+    const perceived = perceive(mutant, brain);
+    const ranked = classifyIntents(perceived, brain, loop);
+    const top = ranked[0];
+    const got = top && top.id;
+    const hit = got === ep.intent;
+    loop.meta.rehearsals += 1;
+    if (hit) {
+      loop.meta.rehearsalHits += 1;
+      loop.keywordBoost[ep.intent] = loop.keywordBoost[ep.intent] || {};
+      (perceived.content || []).forEach((tok) => {
+        if (tok.length < 3) return;
+        loop.keywordBoost[ep.intent][tok] = clamp((loop.keywordBoost[ep.intent][tok] || 0) + 0.01 * (loop.meta.lr.keyword || 1), -0.35, 0.55);
+      });
+      loop.meta.lastAdapter = "keyword";
+      loop.note = "Rehearsal hit: “" + mutant.slice(0, 48) + "” still " + ep.intent + ".";
+    } else if (got) {
+      loop.examples[ep.intent] = addUnique(loop.examples[ep.intent] || [], mutant, 12);
+      loop.anti[got] = addUnique(loop.anti[got] || [], mutant, 8);
+      loop.meta.promotions += 1;
+      loop.meta.lastAdapter = "example";
+      loop.note = "Rehearsal miss → taught “" + mutant.slice(0, 40) + "” as " + ep.intent + ".";
+    }
+    return { mutant: mutant, want: ep.intent, got: got, hit: hit };
+  }
+
+  function loopSnapshot(store) {
+    const loop = ensureLoop(store);
+    const m = loop.meta;
+    const acc = m.rehearsals ? m.rehearsalHits / m.rehearsals : 0;
+    return {
+      rehearsals: m.rehearsals,
+      rehearsalHits: m.rehearsalHits,
+      accuracy: acc,
+      promotions: m.promotions,
+      corrections: m.corrections,
+      rewardsPos: m.rewardsPos,
+      rewardsNeg: m.rewardsNeg,
+      emaReward: m.emaReward,
+      emaFallback: m.emaFallback,
+      threshold: loop.threshold,
+      blendHash: loop.blendHash,
+      lr: clone(m.lr),
+      credit: clone(m.credit),
+      lastAdapter: m.lastAdapter,
+      note: loop.note || "",
+      exampleCount: Object.keys(loop.examples).reduce((n, k) => n + (loop.examples[k] || []).length, 0),
+      episodes: (loop.episodes || []).length
+    };
+  }
+
   function compileBrain(raw) {
     const brain = clone(raw);
     brain.intents = brain.intents || [];
@@ -519,6 +725,7 @@
       merged.quiz = Object.assign(defaultStore().quiz, merged.quiz || {});
       merged.profiles = merged.profiles || [];
       merged.failures = merged.failures || [];
+      ensureLoop(merged);
       return merged;
     } catch (e) {
       return defaultStore();
@@ -535,7 +742,8 @@
       turns: [],
       quiz: { lastCorrect: 0, lastAsked: 0, bestCorrect: 0, bestAsked: 0, rounds: 0 },
       profiles: [],
-      failures: []
+      failures: [],
+      loop: defaultLoop()
     };
   }
 
@@ -544,6 +752,9 @@
     try {
       const slim = clone(store);
       slim.turns = (slim.turns || []).slice(-24);
+      if (slim.loop) {
+        slim.loop.episodes = (slim.loop.episodes || []).slice(-80);
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
     } catch (e) {
       /* quota */
@@ -728,7 +939,7 @@
       /\bI am\s+[A-ZÀ-Ö]/.test(perceived.raw);
   }
 
-  function scoreIntent(perceived, intent) {
+  function scoreIntent(perceived, intent, loop) {
     if (intent.id === "fallback") return 0.05;
     let score = 0;
     (intent._re || []).forEach((re) => {
@@ -739,11 +950,23 @@
     Object.keys(kw).forEach((word) => {
       if (hasKeyword(perceived, word)) score += kw[word];
     });
+    const boost = (loop && loop.keywordBoost && loop.keywordBoost[intent.id]) || {};
+    Object.keys(boost).forEach((word) => {
+      if (hasKeyword(perceived, word)) score += boost[word];
+    });
     let bestEx = 0;
     (intent.examples || []).forEach((ex) => {
       bestEx = Math.max(bestEx, cosine(perceived.vec, charNgrams(ex, 3)));
     });
+    ((loop && loop.examples && loop.examples[intent.id]) || []).forEach((ex) => {
+      bestEx = Math.max(bestEx, cosine(perceived.vec, charNgrams(ex, 3)));
+    });
     score += bestEx * 0.55;
+    let antiBest = 0;
+    ((loop && loop.anti && loop.anti[intent.id]) || []).forEach((ex) => {
+      antiBest = Math.max(antiBest, cosine(perceived.vec, charNgrams(ex, 3)));
+    });
+    score -= antiBest * 0.42;
     score += (intent.priority || 0) * 0.012;
     if (intent.id === "show_media" && /^(cat|dog|both|kissa|koira|molemmat|kitty|puppy|dgo|cta)$/i.test(perceived.normalized)) {
       score += 0.5;
@@ -774,20 +997,21 @@
     return clamp(score, 0, 1.5);
   }
 
-  function classifyIntents(perceived, brain) {
+  function classifyIntents(perceived, brain, loop) {
     const ranked = brain.intents
-      .map((intent) => ({ id: intent.id, handler: intent.handler, score: scoreIntent(perceived, intent), intent }))
+      .map((intent) => ({ id: intent.id, handler: intent.handler, score: scoreIntent(perceived, intent, loop), intent }))
       .sort((a, b) => b.score - a.score);
     return ranked;
   }
 
-  function semanticSearch(perceived, brain, lang) {
+  function semanticSearch(perceived, brain, lang, loop) {
     const qBlend = perceived.blend || perceived.vec;
+    const h = loop && loop.blendHash != null ? clamp(loop.blendHash, 0.2, 0.8) : 0.5;
     return brain._docs
       .map((doc) => {
         const ngramScore = cosine(perceived.vec, doc.ngram || doc.vec || {});
         const hashScore = cosine(qBlend, doc.vec || {});
-        const score = (0.5 * ngramScore + 0.5 * hashScore) * (doc.lang && doc.lang !== lang ? 0.85 : 1);
+        const score = ((1 - h) * ngramScore + h * hashScore) * (doc.lang && doc.lang !== lang ? 0.85 : 1);
         return { ...doc, score };
       })
       .sort((a, b) => b.score - a.score)
@@ -1011,7 +1235,9 @@
       slots: {},
       lang: store.lang || "en",
       lastReply: "",
-      quiz: null
+      quiz: null,
+      lastEpisode: null,
+      lastRanked: []
     };
 
     function tracesPush(traces, phase, id, title, detail, activation) {
@@ -1020,6 +1246,7 @@
 
     function reply(userText) {
       const traces = [];
+      const loop = ensureLoop(store);
       const perceived = perceive(userText, brain);
       tracesPush(
         traces,
@@ -1030,8 +1257,9 @@
         0.95
       );
 
+      const meantHit = perceived.normalized.match(/^meant[:\s]+([a-z0-9_]+)$/);
       const entities = extractEntities(perceived, brain);
-      const ranked = classifyIntents(perceived, brain);
+      const ranked = classifyIntents(perceived, brain, loop);
       tracesPush(
         traces,
         2,
@@ -1054,7 +1282,7 @@
       );
 
       const langGuess = store.lang || perceived.lang;
-      const hits = semanticSearch(perceived, brain, langGuess);
+      const hits = semanticSearch(perceived, brain, langGuess, loop);
       ranked.forEach((row) => {
         const boost = hits.find((h) => h.kind === "intent" && h.id === row.id);
         if (boost) row.score += boost.score * 0.2;
@@ -1087,7 +1315,7 @@
       if (/^(is|are|onko)\b/.test(perceived.normalized) && !entities.math && !/\bare you\b/.test(perceived.normalized)) prefer("yes_no");
       if (foundPersonCue(perceived)) prefer("remember_name");
       if (/\b(i (like|love|prefer)|favorite animal is|tykkään|rakastan)\b/i.test(perceived.normalized) && !/\b(do you|your favorite)\b/i.test(perceived.normalized)) prefer("remember_pref");
-      if (/\b(how are you|how is it going|what is up|mitä kuuluu)\b/.test(perceived.normalized)) prefer("howdy");
+      if (/\b(how are you|how is it going|what is up|mitä kuuluu)\b/.test(perceived.normalized) && !/\blearning\b/.test(perceived.normalized)) prefer("howdy");
       if (/\bgood (morning|afternoon|evening|night|huomenta|päivää|iltaa|yötä)\b/.test(perceived.normalized)) prefer("daypart");
       if (/\b(weather|forecast|sää)\b/.test(perceived.normalized)) prefer("weather");
       if (/\b(are you (there|online|offline|local|chatgpt|gpt|a bot)|who made you|where are you)\b/.test(perceived.normalized)) prefer("origin");
@@ -1100,11 +1328,14 @@
       if (/\b(quiz me|test me|kysy minulta)\b/.test(perceived.normalized) && !/\b(stop|end|quit) quiz\b/.test(perceived.normalized)) prefer("quiz");
       if (/\b(summarize|recap|what did we talk about|tiivistä|yhteenveto)\b/.test(perceived.normalized)) prefer("recap");
       if (/\b(add (a |my )?pet|new pet|pet profile|lisää lemmikki)\b/.test(perceived.normalized)) prefer("add_pet");
+      if (/\b(how are you learning|learning loop|rehearsal|are you (getting|getting any) better)\b/.test(perceived.normalized)) prefer("learn_status");
+      if (/\b(that('?s| is) wrong|not what i meant|bad answer|you got that wrong)\b/.test(perceived.normalized)) prefer("critique");
       if (perceived.empty) prefer("empty");
       ranked.sort((a, b) => b.score - a.score);
 
       let top = ranked[0];
-      if (!top || top.score < INTENT_THRESHOLD) {
+      const thresh = loop.threshold != null ? loop.threshold : INTENT_THRESHOLD;
+      if (!top || top.score < thresh) {
         top = ranked.find((r) => r.id === "fallback") || { id: "fallback", handler: "fallback", score: 0, intent: { id: "fallback" } };
       }
 
@@ -1172,6 +1403,34 @@
           top = ranked.find((r) => r.id === "show_media") || top;
         } else {
           top = ranked.find((r) => r.id === "animal_fact") || top;
+        }
+      }
+
+      if (meantHit && !(state.quiz && state.quiz.active)) {
+        const want = meantHit[1];
+        const known = (brain.intents || []).some((i) => i.id === want);
+        if (known && state.lastEpisode) {
+          if (state.lastEpisode.intent && state.lastEpisode.intent !== want) {
+            applyReward(store, { input: state.lastEpisode.input, intent: state.lastEpisode.intent, tokens: state.lastEpisode.tokens }, -1, "example");
+          }
+          state.lastEpisode.intent = want;
+          applyReward(store, state.lastEpisode, 1, "example");
+          loop.meta.corrections += 1;
+          loop.examples[want] = addUnique(loop.examples[want] || [], state.lastEpisode.input, 12);
+          top = { id: "learn_status", handler: "learn_status", score: 1, intent: { id: "learn_status" } };
+        }
+      } else if (
+        state.lastEpisode &&
+        state.lastEpisode.intent === "fallback" &&
+        top.id !== "fallback" &&
+        (top.score || 0) >= thresh &&
+        !perceived.empty
+      ) {
+        const sim = cosine(charNgrams(state.lastEpisode.input, 3), perceived.vec);
+        if (sim > 0.42) {
+          loop.examples[top.id] = addUnique(loop.examples[top.id] || [], state.lastEpisode.input, 12);
+          loop.meta.promotions += 1;
+          loop.note = "Linked a rephrase to " + top.id + ".";
         }
       }
 
@@ -1508,6 +1767,62 @@
               lang === "fi" ? "Selvä, ei jatketa sitä. Mitä seuraavaksi?" : "Okay, dropping that. What instead — cat, fact, or math?";
             break;
           }
+          case "critique": {
+            if (state.lastEpisode) applyReward(store, state.lastEpisode, -1, "example");
+            const opts = (state.lastRanked || [])
+              .filter((r) => r.id && r.id !== "fallback" && r.id !== "critique")
+              .slice(0, 4)
+              .map((r) => "meant:" + r.id);
+            draft.text =
+              lang === "fi"
+                ? "Selvä — heikennän tuota paikallisesti. Napauta intended-aietta (meant:…)."
+                : "Noted — I downweighted that in this browser. Tap what it should have been (meant:…), still no cloud.";
+            draft.suggestions = opts.length ? opts.concat(["how are you learning"]) : ["how are you learning", "Save as test"];
+            break;
+          }
+          case "learn_status": {
+            const snap = loopSnapshot(store);
+            const acc = Math.round(snap.accuracy * 100);
+            draft.text =
+              lang === "fi"
+                ? "Paikallinen oppimissilmukka (ei pilveä). Tenttitarkkuus " +
+                  acc +
+                  "%. Promootioita " +
+                  snap.promotions +
+                  ", korjauksia " +
+                  snap.corrections +
+                  ". Oppimisnopeudet example=" +
+                  snap.lr.example.toFixed(2) +
+                  " keyword=" +
+                  snap.lr.keyword.toFixed(2) +
+                  ". " +
+                  (snap.note || "")
+                : "Local learning loop — no cloud. Rehearsal accuracy " +
+                  acc +
+                  "%. Promotions " +
+                  snap.promotions +
+                  ", corrections " +
+                  snap.corrections +
+                  ", +" +
+                  snap.rewardsPos +
+                  "/−" +
+                  snap.rewardsNeg +
+                  " rewards. Adapter LRs example=" +
+                  snap.lr.example.toFixed(2) +
+                  " keyword=" +
+                  snap.lr.keyword.toFixed(2) +
+                  " blend=" +
+                  snap.lr.blend.toFixed(2) +
+                  ". Fallback EMA " +
+                  snap.emaFallback.toFixed(2) +
+                  ", threshold " +
+                  snap.threshold.toFixed(2) +
+                  ". " +
+                  (snap.note || "Say thanks, “that's wrong”, or meant:animal_fact to teach me.");
+            draft.openTab = "loop";
+            draft.suggestions = lang === "fi" ? ["kiitos", "that's wrong"] : ["thanks", "that's wrong", "how are you learning"];
+            break;
+          }
           case "recap": {
             draft.text = recapTurns(store.turns, brain, lang);
             break;
@@ -1736,13 +2051,41 @@
       if (top.id === "fallback") {
         const base = Array.isArray(draft.suggestions) ? draft.suggestions.slice() : loc(brain.suggestions, lang) || [];
         if (base.indexOf("Save as test") < 0) base.push("Save as test");
+        ranked
+          .filter((r) => r.id !== "fallback" && r.id !== "empty")
+          .slice(0, 3)
+          .forEach((r) => {
+            const chip = "meant:" + r.id;
+            if (base.indexOf(chip) < 0) base.push(chip);
+          });
         draft.suggestions = base;
       }
 
       tracesPush(traces, 10, "planner", "Planner", `handler=${top.handler || reasonNote} · ${draft.html ? "media" : "text"}`, 0.9);
 
+      if (top.id === "thanks" && state.lastEpisode) {
+        applyReward(store, state.lastEpisode, 1, "example");
+      }
+
       state.lastIntent = top.id;
       state.lang = lang;
+      state.lastRanked = ranked.slice(0, 6).map((r) => ({ id: r.id, score: r.score }));
+      const skipEpisode = { thanks: 1, critique: 1, learn_status: 1, empty: 1, repeat: 1, deny: 1 };
+      if (!skipEpisode[top.id] && perceived.raw) {
+        const ep = {
+          input: perceived.raw,
+          intent: top.id,
+          score: top.score || 0,
+          tokens: perceived.content || perceived.tokens || [],
+          reward: 0,
+          at: Date.now()
+        };
+        loop.episodes.push(ep);
+        loop.episodes = loop.episodes.slice(-80);
+        state.lastEpisode = ep;
+      }
+      loop.meta.emaFallback = 0.9 * loop.meta.emaFallback + 0.1 * (top.id === "fallback" ? 1 : 0);
+
       store.turns.push({ role: "user", text: perceived.raw, at: Date.now() });
       store.turns.push({ role: "assistant", text: draft.text, intent: top.id, at: Date.now() });
       if (top.id !== "repeat") state.lastReply = draft.text;
@@ -1771,7 +2114,8 @@
             .filter(Boolean)
             .filter((id, i, arr) => arr.indexOf(id) === i),
           edge: yn && yn.hit ? { from: yn.a.id, to: yn.b.id, rel: yn.hit.rel } : null
-        }
+        },
+        loop: loopSnapshot(store)
       };
     }
 
@@ -1784,7 +2128,27 @@
       state.flowId = null;
       state.slots = {};
       state.quiz = null;
+      state.lastEpisode = null;
+      state.lastRanked = [];
       saveStore(store);
+    }
+
+    function rehearse(n) {
+      const reports = [];
+      const steps = Math.max(1, Math.min(12, n || 3));
+      for (let i = 0; i < steps; i++) {
+        const row = rehearseOnce(brain, store);
+        if (row) reports.push(row);
+      }
+      saveStore(store);
+      return { ran: reports.length, hits: reports.filter((r) => r.hit).length, reports: reports, loop: loopSnapshot(store) };
+    }
+
+    function resetLoop() {
+      store.loop = defaultLoop();
+      state.lastEpisode = null;
+      saveStore(store);
+      return loopSnapshot(store);
     }
 
     function mergePack(pack) {
@@ -1805,11 +2169,14 @@
       },
       reply,
       resetMemory,
+      resetLoop,
+      rehearse,
       mergePack,
       replaceBrain,
       getRaw: () => clone(raw),
       getStore: () => clone(store),
-      getState: () => clone(state)
+      getState: () => clone(state),
+      getLoop: () => loopSnapshot(store)
     };
   }
 
@@ -1842,6 +2209,10 @@
     diffBrains,
     applyIntentsOnly,
     recapTurns,
+    rehearseOnce,
+    mutateUtterance,
+    ensureLoop,
+    loopSnapshot,
     levenshtein,
     applyMath,
     parseMath,

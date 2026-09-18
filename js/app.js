@@ -66,6 +66,7 @@
     renderRoadmap(rawBrain.roadmap);
     renderGraph(rawBrain, lastFocus);
     renderPacks();
+    renderLoop();
   }
 
   function renderPhases(roadmap, traces) {
@@ -151,6 +152,7 @@
     const chips = $("#chips");
     chips.innerHTML = "";
     (list || []).forEach((label) => {
+      const shown = String(label).indexOf("meant:") === 0 ? "meant " + String(label).slice(6) : label;
       chips.appendChild(
         el(
           "button",
@@ -166,7 +168,7 @@
               send();
             }
           },
-          [label]
+          [shown]
         )
       );
     });
@@ -197,6 +199,7 @@
       ["Taught rules", String((store.learned || []).length)],
       ["Notes", String((store.facts || []).length)],
       ["Pets", lastPet ? lastPet.name + ", " + lastPet.species + ", " + lastPet.age : "—"],
+      ["Loop accuracy", session.getLoop && session.getLoop().rehearsals ? Math.round(session.getLoop().accuracy * 100) + "%" : "—"],
       ["Quiz last", store.quiz && store.quiz.lastAsked ? store.quiz.lastCorrect + "/" + store.quiz.lastAsked : "—"],
       ["Quiz best", store.quiz && store.quiz.bestAsked ? store.quiz.bestCorrect + "/" + store.quiz.bestAsked : "—"]
     ];
@@ -209,6 +212,48 @@
       dl.appendChild(el("dd", {}, [store.learned.map((r) => r.trigger).join(", ")]));
     }
     $("#mem-view").appendChild(dl);
+  }
+
+  function renderLoop() {
+    const box = $("#loop-view");
+    if (!box || !session || !session.getLoop) return;
+    const L = session.getLoop();
+    const store = session.getStore();
+    const acc = Math.round((L.accuracy || 0) * 100);
+    box.innerHTML = "";
+    box.appendChild(el("p", { class: "loop-note" }, [L.note || "Waiting for turns. Thanks rewards; “that’s wrong” plus meant: labels teach."]));
+    [
+      ["Rehearsal accuracy", acc + "% (" + L.rehearsalHits + "/" + L.rehearsals + ")", acc],
+      ["Fallback EMA", L.emaFallback.toFixed(2), Math.round(L.emaFallback * 100)],
+      ["Example LR", L.lr.example.toFixed(2), Math.min(100, Math.round((L.lr.example / 2.5) * 100))],
+      ["Keyword LR", L.lr.keyword.toFixed(2), Math.min(100, Math.round((L.lr.keyword / 2.5) * 100))],
+      ["Blend LR / hash mix", L.lr.blend.toFixed(2) + " · " + L.blendHash.toFixed(2), Math.round(L.blendHash * 100)]
+    ].forEach(([k, v, pct]) => {
+      box.appendChild(
+        el("div", { class: "loop-stat" }, [
+          el("div", {}, [k + " — " + v]),
+          el("div", { class: "meter" }, [el("span", { style: "width:" + pct + "%" })])
+        ])
+      );
+    });
+    box.appendChild(
+      el("p", { class: "hint" }, [
+        "Promotions " +
+          L.promotions +
+          " · corrections " +
+          L.corrections +
+          " · examples " +
+          L.exampleCount +
+          " · adapter " +
+          (L.lastAdapter || "example") +
+          " · threshold " +
+          L.threshold.toFixed(2)
+      ])
+    );
+    const eps = (store.loop && store.loop.episodes) || [];
+    eps.slice(-8).reverse().forEach((e) => {
+      box.appendChild(el("div", { class: "loop-ep" }, [(e.intent || "?") + " · r" + (e.reward || 0) + " · " + String(e.input || "").slice(0, 64)]));
+    });
   }
 
   function renderGraph(brain, focus) {
@@ -300,6 +345,7 @@
     $$(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === id));
     $$(".panel-body[data-pane]").forEach((p) => p.classList.toggle("hidden", p.dataset.pane !== id));
     if (id === "graph") renderGraph(rawBrain || baseBrain, lastFocus);
+    if (id === "loop") renderLoop();
   }
 
   function animatePhases(traces) {
@@ -342,6 +388,7 @@
     renderMemory();
     renderChips(result.suggestions);
     renderGraph(rawBrain, lastFocus);
+    renderLoop();
     maybeSpeak(result);
     if (result.openTab) showTab(result.openTab);
   }
@@ -488,13 +535,14 @@
     compileSession();
     renderChips(rawBrain.suggestions.en);
     renderMemory();
+    renderLoop();
 
     const name = session.getStore().userName;
     addMessage(
       "bot",
       name
         ? `Welcome back, ${name}. I'm still Cortex, still on-device. Say cat, quiz me, add a pet, or summarize our chat.`
-        : "I'm Cortex. My intelligence is a JSON file plus a ten-phase engine in this browser — no cloud inference. Try “quiz me”, “add a pet”, “cat”, or “how do you work?”."
+        : "I'm Cortex. My intelligence is a JSON file plus a ten-phase engine in this browser — no cloud inference. Try “quiz me”, “add a pet”, “how are you learning?”, or “cat”."
     );
 
     $("#say").addEventListener("click", send);
@@ -509,7 +557,21 @@
     $("#reset-mem").addEventListener("click", () => {
       session.resetMemory();
       renderMemory();
+      renderLoop();
       addMessage("bot", "Local memory cleared.");
+    });
+    $("#loop-practice").addEventListener("click", () => {
+      const report = session.rehearse(6);
+      renderLoop();
+      addMessage(
+        "bot",
+        "Local rehearsal: " + report.ran + " drills, " + report.hits + " hits. " + ((report.loop && report.loop.note) || "Still on-device.")
+      );
+    });
+    $("#loop-reset").addEventListener("click", () => {
+      session.resetLoop();
+      renderLoop();
+      addMessage("bot", "Learning loop reset. Intents JSON unchanged.");
     });
     $("#download-brain").addEventListener("click", () => {
       const blob = new Blob([$("#brain-json").value], { type: "application/json" });
@@ -554,6 +616,11 @@
 
     wireVoice();
     registerSW();
+    window.setInterval(() => {
+      if (!session || !session.rehearse) return;
+      session.rehearse(2);
+      renderLoop();
+    }, 2800);
   }
 
   document.addEventListener("DOMContentLoaded", boot);
