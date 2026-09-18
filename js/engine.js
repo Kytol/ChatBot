@@ -311,7 +311,9 @@
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultStore();
-      return Object.assign(defaultStore(), JSON.parse(raw));
+      const merged = Object.assign(defaultStore(), JSON.parse(raw));
+      merged.quiz = Object.assign(defaultStore().quiz, merged.quiz || {});
+      return merged;
     } catch (e) {
       return defaultStore();
     }
@@ -324,7 +326,8 @@
       lang: "",
       learned: [],
       facts: [],
-      turns: []
+      turns: [],
+      quiz: { lastCorrect: 0, lastAsked: 0, bestCorrect: 0, bestAsked: 0, rounds: 0 }
     };
   }
 
@@ -540,6 +543,9 @@
     if (intent.id === "teach" && !/\b(when i say|if i say|teach|remember that|kun sanon|opeta)\b/i.test(perceived.normalized)) {
       score *= 0.08;
     }
+    if (intent.id === "quiz" && /\b(stop|end|quit) quiz\b/.test(perceived.normalized)) {
+      score *= 0.05;
+    }
     return clamp(score, 0, 1.5);
   }
 
@@ -625,6 +631,94 @@
     return null;
   }
 
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i];
+      a[i] = a[j];
+      a[j] = t;
+    }
+    return a;
+  }
+
+  function buildQuizDeck(brain, topic) {
+    const deck = [];
+    const seen = new Set();
+    function push(q) {
+      if (!q || !q.id || seen.has(q.id)) return;
+      if (topic && q.topic && q.topic !== topic && q.topic !== "any") return;
+      seen.add(q.id);
+      deck.push(clone(q));
+    }
+    (brain.quiz || []).forEach(push);
+    ((brain.graph && brain.graph.edges) || []).forEach((e) => {
+      if (e.rel !== "is_a") return;
+      const from = brain._nodeById[e.from];
+      const to = brain._nodeById[e.to];
+      if (!from || !to) return;
+      const fromEn = loc(from.label, "en");
+      const toEn = loc(to.label, "en");
+      const fromFi = loc(from.label, "fi");
+      const toFi = loc(to.label, "fi");
+      push({
+        id: "isa_" + e.from + "_" + e.to,
+        topic: e.from,
+        q: {
+          en: "Is a " + fromEn + " a " + toEn + "? (yes/no)",
+          fi: "Onko " + fromFi + " " + toFi + "? (kyllä/ei)"
+        },
+        accept: ["yes", "y", "yeah", "kyllä", "joo", toEn, toFi].filter(Boolean),
+        reject: ["no", "nope", "nah", "ei"],
+        explain: {
+          en: "Yes — in the JSON graph, " + e.from + " —is_a→ " + e.to + ".",
+          fi: "Kyllä — JSON-kaaviossa " + e.from + " —is_a→ " + e.to + "."
+        }
+      });
+    });
+    Object.keys(brain._nodeById || {}).forEach((id) => {
+      const n = brain._nodeById[id];
+      const legs = n.attrs && n.attrs.legs;
+      if (!legs) return;
+      const val = String(loc(legs, "en")).replace(/[^\d].*/, "") || String(loc(legs, "en"));
+      if (!/^\d+$/.test(val)) return;
+      push({
+        id: "legs_" + id,
+        topic: id,
+        q: {
+          en: "How many legs does a " + loc(n.label, "en") + " typically have?",
+          fi: "Kuinka monta jalkaa " + loc(n.label, "fi") + " yleensä?"
+        },
+        accept: [val, val === "4" ? "four" : "", val === "2" ? "two" : ""].filter(Boolean),
+        explain: {
+          en: loc(n.label, "en") + " — legs: " + val + ".",
+          fi: loc(n.label, "fi") + " — jalkaa: " + val + "."
+        }
+      });
+    });
+    return shuffle(deck).slice(0, 5);
+  }
+
+  function gradeQuizAnswer(q, perceived) {
+    const hay = perceived.normalized;
+    const tokens = perceived.tokens.concat(perceived.stems);
+    const accept = (q.accept || []).map((s) => String(s).toLowerCase());
+    const reject = (q.reject || []).map((s) => String(s).toLowerCase());
+    const hit = (list) =>
+      list.some((a) => {
+        if (!a) return false;
+        if (hay === a || tokens.includes(a)) return true;
+        return a.length > 2 && hay.includes(a);
+      });
+    if (hit(accept)) return true;
+    if (hit(reject)) return false;
+    let best = 0;
+    accept.forEach((a) => {
+      best = Math.max(best, cosine(perceived.vec, charNgrams(a, 3)));
+    });
+    return best >= 0.78;
+  }
+
   function applyMath(entities) {
     const left = parseFloat(entities.left);
     const right = parseFloat(entities.right);
@@ -649,7 +743,8 @@
       awaiting: null,
       slots: {},
       lang: store.lang || "en",
-      lastReply: ""
+      lastReply: "",
+      quiz: null
     };
 
     function tracesPush(traces, phase, id, title, detail, activation) {
@@ -735,6 +830,7 @@
       if (/\b(reverse|spell|count to)\b/.test(perceived.normalized)) prefer("transform");
       if (/\b(repeat|say that again|what did you say|toista)\b/.test(perceived.normalized)) prefer("repeat");
       if (entities.emotion && !foundPersonCue(perceived)) prefer("emotion");
+      if (/\b(quiz me|test me|kysy minulta)\b/.test(perceived.normalized) && !/\b(stop|end|quit) quiz\b/.test(perceived.normalized)) prefer("quiz");
       if (perceived.empty) prefer("empty");
       ranked.sort((a, b) => b.score - a.score);
 
@@ -762,6 +858,18 @@
       } else if (state.awaiting && isDeny) {
         state.awaiting = null;
         top = ranked.find((r) => r.id === "deny") || { id: "deny", handler: "deny", score: 1 };
+      }
+
+      if (state.quiz && state.quiz.active && !/\b(quiz me|start quiz|test me|kysy minulta)\b/.test(perceived.normalized)) {
+        top = { id: "quiz", handler: "quiz", score: 1, intent: { id: "quiz" } };
+        const n = perceived.normalized;
+        if (/^(stop|end|quit|lopeta|enough)( quiz| tentti)?$/.test(n) || /\b(stop quiz|end quiz|quit quiz|lopeta tentti)\b/.test(n)) {
+          entities.quizAct = "stop";
+        } else if (/^(skip|next|ohita)$/.test(n) || /\b(skip|ohita)\b/.test(n)) {
+          entities.quizAct = "skip";
+        } else {
+          entities.quizAct = "answer";
+        }
       }
 
       const looksLikeTeach = /\b(when i say|if i say|teach you|remember that|kun sanon|opeta)\b/i.test(
@@ -1182,6 +1290,86 @@
             ]);
             break;
           }
+          case "quiz": {
+            store.quiz = store.quiz || defaultStore().quiz;
+            const ask = function (q, i, total) {
+              return (lang === "fi" ? "Kysymys " + i + "/" + total + ": " : "Q" + i + "/" + total + ": ") + loc(q.q, lang);
+            };
+            const finish = function () {
+              const asked = state.quiz.asked;
+              const correct = state.quiz.correct;
+              if (!asked) {
+                state.quiz = null;
+                draft.suggestions = lang === "fi" ? ["kysy minulta", "kissa"] : ["quiz me", "cat"];
+                return lang === "fi" ? "Tentti keskeytetty." : "Quiz cancelled.";
+              }
+              store.quiz.lastCorrect = correct;
+              store.quiz.lastAsked = asked;
+              store.quiz.rounds += 1;
+              if (correct > (store.quiz.bestCorrect || 0) || (correct === store.quiz.bestCorrect && asked <= (store.quiz.bestAsked || asked))) {
+                store.quiz.bestCorrect = correct;
+                store.quiz.bestAsked = asked;
+              }
+              state.quiz = null;
+              draft.suggestions = lang === "fi" ? ["kysy minulta", "kissa", "miten toimit?"] : ["quiz me", "cat", "how do you work?"];
+              return lang === "fi"
+                ? "Tentti ohi: " + correct + "/" + asked + ". Paras tässä selaimessa: " + store.quiz.bestCorrect + "/" + (store.quiz.bestAsked || asked) + ". Sano “kysy minulta” uudestaan."
+                : "Quiz over: " + correct + "/" + asked + ". Best in this browser: " + store.quiz.bestCorrect + "/" + (store.quiz.bestAsked || asked) + ". Say “quiz me” to go again.";
+            };
+            const nextQ = function () {
+              if (!state.quiz.queue[state.quiz.index]) {
+                draft.text = finish();
+                return;
+              }
+              state.quiz.current = state.quiz.queue[state.quiz.index];
+              draft.text = ask(state.quiz.current, state.quiz.index + 1, state.quiz.queue.length);
+              draft.suggestions = lang === "fi" ? ["ohita", "lopeta tentti"] : ["skip", "stop quiz"];
+            };
+
+            if (entities.quizAct === "stop" && state.quiz && state.quiz.active) {
+              draft.text = finish();
+              break;
+            }
+            if (entities.quizAct === "skip" && state.quiz && state.quiz.active) {
+              state.quiz.asked += 1;
+              state.quiz.index += 1;
+              const skipped = lang === "fi" ? "Ohitettu. " : "Skipped. ";
+              nextQ();
+              draft.text = skipped + (draft.text || "");
+              break;
+            }
+            if (entities.quizAct === "answer" && state.quiz && state.quiz.current) {
+              const ok = gradeQuizAnswer(state.quiz.current, perceived);
+              state.quiz.asked += 1;
+              if (ok) state.quiz.correct += 1;
+              const verdict = ok
+                ? lang === "fi" ? "Oikein. " : "Correct. "
+                : lang === "fi" ? "Ei aivan. " : "Not quite. ";
+              const why = loc(state.quiz.current.explain, lang) || "";
+              state.quiz.index += 1;
+              nextQ();
+              draft.text = verdict + why + (why ? " " : "") + (draft.text || "");
+              break;
+            }
+
+            const topic = entities.animal && entities.animal !== "both" ? entities.animal : entities.node || null;
+            const deck = buildQuizDeck(brain, topic);
+            if (!deck.length) {
+              draft.text =
+                lang === "fi"
+                  ? "En löytänyt tenttikysymyksiä tästä JSON-aivoista."
+                  : "No quiz items in this JSON brain yet.";
+              break;
+            }
+            state.quiz = { active: true, queue: deck, index: 0, correct: 0, asked: 0, current: null };
+            nextQ();
+            const about = topic ? (lang === "fi" ? " Aihe: " + topic + "." : " Topic: " + topic + ".") : "";
+            draft.text =
+              (lang === "fi"
+                ? "Paikallinen tentti tietoverkosta — ei pilveä." + about + " "
+                : "Local graph quiz — no cloud." + about + " ") + draft.text;
+            break;
+          }
           case "yes_no": {
             if (yn && yn.hit) {
               draft.text =
@@ -1246,7 +1434,8 @@
           userName: store.userName,
           favoriteAnimal: store.favoriteAnimal,
           learned: store.learned.length,
-          facts: store.facts.length
+          facts: store.facts.length,
+          quiz: store.quiz || defaultStore().quiz
         }
       };
     }
@@ -1257,6 +1446,7 @@
       Object.assign(store, fresh);
       state.topic = null;
       state.awaiting = null;
+      state.quiz = null;
       saveStore(store);
     }
 

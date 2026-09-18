@@ -16,6 +16,8 @@ Open `http://localhost:8080/`. Fetching `data/brain.json` needs HTTP; inference 
 node tests/engine.test.js
 ```
 
+Docs: [OVERVIEW.md](OVERVIEW.md) (architecture) · [ROADMAP.md](ROADMAP.md) (ten next-build ideas).
+
 The original one-file bot remains at [`chatBot.html`](chatBot.html).
 
 ## Ten phases (implemented)
@@ -54,5 +56,5 @@ Then `ping` is answered from local memory, still with no cloud call.
 - `10 km to miles` · `100 F to C`
 - `my name is Aino` · `call me Sam` · `when I say ping reply pong`
 - `how are you` · `good morning` · `what's the weather` (honest offline)
-- `flip a coin` · `count to 5` · `reverse hello`
+- `quiz me` / `quiz me about cats` — local graph quiz (`skip`, `stop quiz`)
 - `how do you work?` — the pipeline in plain language

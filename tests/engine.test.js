@@ -114,6 +114,24 @@ check("", "empty", /type something|kirjoita/i);
 
 {
   const sess = session();
+  let out = sess.reply("quiz me");
+  assert(out.intent === "quiz", "quiz start intent " + out.intent);
+  assert(/Q1\/\d+/.test(out.text), "quiz asks Q1: " + out.text);
+  out = sess.reply("stop quiz");
+  assert(/Quiz over|Quiz cancelled/i.test(out.text), "stop quiz: " + out.text);
+}
+
+{
+  const sess = session();
+  let out = sess.reply("quiz me about json");
+  assert(out.intent === "quiz", "json quiz intent " + out.intent);
+  assert(/JSON|notation/i.test(out.text), "json quiz prompt: " + out.text);
+  out = sess.reply("javascript object notation");
+  assert(/Correct|Quiz over/i.test(out.text), "json quiz grade: " + out.text);
+}
+
+{
+  const sess = session();
   sess.reply("cat");
   const out = sess.reply("repeat that");
   assert(out.intent === "repeat", "repeat intent " + out.intent);

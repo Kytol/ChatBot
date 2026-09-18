@@ -116,7 +116,9 @@
       ["Favorite", store.favoriteAnimal || "—"],
       ["Language lock", store.lang || "auto"],
       ["Taught rules", String((store.learned || []).length)],
-      ["Notes", String((store.facts || []).length)]
+      ["Notes", String((store.facts || []).length)],
+      ["Quiz last", store.quiz && store.quiz.lastAsked ? store.quiz.lastCorrect + "/" + store.quiz.lastAsked : "—"],
+      ["Quiz best", store.quiz && store.quiz.bestAsked ? store.quiz.bestCorrect + "/" + store.quiz.bestAsked : "—"]
     ];
     rows.forEach(([k, v]) => {
       dl.appendChild(el("dt", {}, [k]));
@@ -219,7 +221,7 @@
       "bot",
       name
         ? `Welcome back, ${name}. I'm still Cortex, still on-device. Say cat, dog, or both — or ask how the ten phases work.`
-        : "I'm Cortex. My intelligence is a JSON file plus a ten-phase engine in this browser — no cloud inference. Try “cat”, “kerro koirista”, “what is 12*7”, or “how do you work?”."
+        : "I'm Cortex. My intelligence is a JSON file plus a ten-phase engine in this browser — no cloud inference. Try “quiz me”, “cat”, or “how do you work?”."
     );
 
     $("#say").addEventListener("click", send);

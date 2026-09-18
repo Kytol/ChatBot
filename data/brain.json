@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "Cortex",
-    "version": "10.0",
+    "version": "10.1",
     "tagline": {
       "en": "On-device conversational intelligence. No cloud inference.",
       "fi": "Laitteella toimiva keskusteluäly. Ei pilvipäättelyä."
@@ -439,6 +439,14 @@
       "handler": "emotion"
     },
     {
+      "id": "quiz",
+      "priority": 13,
+      "patterns": ["\\b(quiz( me)?|test me|kysy minulta|tentti)\\b"],
+      "keywords": { "quiz": 0.8, "tentti": 0.8 },
+      "examples": ["quiz me", "quiz me about cats", "test me", "kysy minulta"],
+      "handler": "quiz"
+    },
+    {
       "id": "fallback",
       "priority": 0,
       "patterns": [".*"],
@@ -708,7 +716,7 @@
       "fi": ["Olen Cortex, laitteella toimiva keskustelumoottori. Aikeet, entiteetit, faktat ja persoona ovat tiedostossa brain.json. JavaScript ajaa 10 vaihetta. Mallirajapintaa ei ole."]
     },
     "capabilities": {
-      "en": ["I can greet you in English or Finnish, draw cats and dogs, talk about horses/foxes/birds without drawing them, pull facts from a knowledge graph, do arithmetic (including word numbers and 2+2+2), convert km/miles and °C/°F, remember your name and favorites, learn a when-I-say rule, flip a coin, reverse text, tell the local time, and show a live trace of all ten phases. Try: cat · show me a horse · two plus two · 10 km to miles · how are you · flip a coin"],
+      "en": ["I can greet you in English or Finnish, draw cats and dogs, quiz you from the knowledge graph, talk about horses/foxes/birds without drawing them, pull facts, do arithmetic, convert units, remember your name, learn a when-I-say rule, flip a coin, and show a live trace of all ten phases. Try: quiz me · cat · two plus two · how do you work?"],
       "fi": ["Osaan tervehtiä suomeksi tai englanniksi, piirtää kissoja ja koiria, hakea faktoja tietoverkosta, laskea, muistaa nimesi, oppia kun-sanon-säännön, kertoa kellon ja näyttää kymmenen vaiheen jäljen. Kokeile: kissa · kerro koirista · nimeni on Aino · laske 12*7"]
     },
     "fallback": {
@@ -722,6 +730,35 @@
       ]
     }
   },
+  "quiz": [
+    {
+      "id": "json_format",
+      "topic": "json",
+      "q": {
+        "en": "What does JSON stand for? (hint: JavaScript Object …)",
+        "fi": "Mitä JSON tarkoittaa? (vihje: JavaScript Object …)"
+      },
+      "accept": ["javascript object notation", "notation", "object notation"],
+      "explain": {
+        "en": "JSON is JavaScript Object Notation — the format of this brain.",
+        "fi": "JSON on JavaScript Object Notation — näiden aivojen muoto."
+      }
+    },
+    {
+      "id": "cortex_offline",
+      "topic": "cortex",
+      "q": {
+        "en": "Does Cortex call a cloud model API? (yes/no)",
+        "fi": "Kutsuuko Cortex pilvimallin rajapintaa? (kyllä/ei)"
+      },
+      "accept": ["no", "nope", "nah", "ei"],
+      "reject": ["yes", "yeah", "y", "kyllä", "joo"],
+      "explain": {
+        "en": "No. Matching runs in this page from brain.json.",
+        "fi": "Ei. Täsmäytys tapahtuu tässä sivussa tiedostosta brain.json."
+      }
+    }
+  ],
   "attributes": {
     "legs": ["legs", "leg", "jalkaa", "paws", "paw"],
     "toes": ["toes", "toe", "varvasta", "varpaat"]
@@ -734,7 +771,7 @@
     }
   },
   "suggestions": {
-      "en": ["cat", "dog", "both", "How do you work?", "How are you?", "two plus two", "10 km to miles", "flip a coin"],
+      "en": ["cat", "dog", "quiz me", "How do you work?", "two plus two", "10 km to miles", "flip a coin"],
     "fi": ["kissa", "koira", "molemmat", "Miten toimit?", "Kerro kissoista", "Laske 12 * 7", "Nimeni on Aino"]
   }
 }
