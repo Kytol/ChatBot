@@ -395,25 +395,29 @@
       if (n.label) bagBits.push(loc(n.label, "en"), loc(n.label, "fi"));
     });
     const bagVec = charNgrams(bagBits.join(" "), 3);
-    const scored = pairs.map((p) => {
+    const scored = pairs.map((p, i) => {
       const blob = (p.user + " " + p.bot + " " + p.intent).toLowerCase();
       let bonus = 0;
       if (/quiz/.test(blob)) bonus += 0.15;
       if (/\d/.test(blob) || p.intent === "math") bonus += 0.18;
       if (/\b(cat|dog|kissa|koira)\b/.test(blob) || p.intent === "show_media") bonus += 0.12;
-      return { p, score: cosine(charNgrams(blob, 3), bagVec) + bonus };
+      const recency = ((i + 1) / pairs.length) * 0.35;
+      return { p, score: cosine(charNgrams(blob, 3), bagVec) + bonus + recency };
     });
+    const lastRow = scored[scored.length - 1];
     scored.sort((a, b) => b.score - a.score);
     const top = [];
     const seen = new Set();
     const seenIntent = new Set();
     function takeRow(row) {
+      if (!row) return;
       const key = row.p.user.slice(0, 40);
       if (seen.has(key)) return;
       seen.add(key);
       if (row.p.intent) seenIntent.add(row.p.intent);
       top.push(row.p);
     }
+    takeRow(lastRow);
     scored.forEach((row) => {
       if (top.length >= 3) return;
       if (row.p.intent && seenIntent.has(row.p.intent)) return;
